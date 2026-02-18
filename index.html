@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Underground Hold'em</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Cinzel:wght@500;700&family=Rajdhani:wght@400;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-bg"></div>
+    <main class="table-scene" id="tableScene">
+      <header class="top-bar">
+        <div class="top-left">
+          <div class="brand">
+            <span class="brand-main">UNDERGROUND</span>
+            <span class="brand-sub">NO-LIMIT HOLD'EM</span>
+          </div>
+          <div class="board-mini" id="boardMini" aria-live="polite">
+            <span class="board-mini-label" id="boardMiniLabel">BOARD</span>
+            <div class="board-mini-cards" id="boardMiniCards"></div>
+          </div>
+        </div>
+        <div class="meta">
+          <div class="chip-stack" id="blindInfo">Blinds 10 / 20</div>
+          <div class="chip-stack chip-stack-accent" id="blindPositions">SB -- / BB --</div>
+          <button class="next-hand" id="nextHandBtn" disabled>Next Hand</button>
+        </div>
+      </header>
+
+      <section class="table-wrap">
+        <div class="room-props" aria-hidden="true">
+          <div class="prop lamp lamp-left"></div>
+          <div class="prop lamp lamp-right"></div>
+          <div class="prop stack stack-left"></div>
+          <div class="prop stack stack-right"></div>
+          <div class="prop glass"></div>
+          <div class="prop cigar"></div>
+          <div class="prop deck"></div>
+          <div class="prop ashtray"></div>
+        </div>
+
+        <div class="table-rig">
+          <div id="poker3dViewport" aria-hidden="true"></div>
+
+          <div class="table-oval">
+            <div class="table-rail"></div>
+            <div class="felt-glow"></div>
+            <div class="table-front-edge"></div>
+
+            <div class="dealer-npc" aria-hidden="true">
+              <div class="dealer-head"></div>
+              <div class="dealer-body"></div>
+              <div class="dealer-arm dealer-arm-left"></div>
+              <div class="dealer-arm dealer-arm-right"></div>
+              <div class="dealer-hands"></div>
+            </div>
+
+            <div class="community-zone">
+              <div class="pot-label">POT</div>
+              <div class="pot-amount" id="potAmount">0</div>
+              <div class="community-cards" id="communityCards"></div>
+            </div>
+          </div>
+
+          <div class="deal-layer" id="dealLayer" aria-hidden="true"></div>
+          <aside class="hand-readout" id="handReadout" aria-live="polite"></aside>
+
+          <div class="seat seat-top" data-seat="0"></div>
+          <div class="seat seat-right" data-seat="1"></div>
+          <div class="seat seat-bottom" data-seat="2"></div>
+          <div class="seat seat-left" data-seat="3"></div>
+        </div>
+      </section>
+
+      <section class="action-panel">
+        <div class="status-row">
+          <div class="status-main" id="statusMain">Start a new hand.</div>
+          <div class="status-sub" id="statusSub">You are seat 3.</div>
+        </div>
+
+        <div class="controls" id="controls">
+          <button id="foldBtn" disabled>Fold</button>
+          <button id="checkCallBtn" disabled>Check</button>
+          <button id="peekBtn" disabled>Peek Cards</button>
+          <div class="raise-control">
+            <label for="raiseRange">Raise</label>
+            <input type="range" id="raiseRange" min="20" max="200" value="40" step="10" disabled />
+            <div class="raise-amount" id="raiseAmount">40</div>
+            <button id="raiseBtn" disabled>Raise To</button>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <template id="seatTemplate">
+      <div class="seat-inner">
+        <div class="seat-head">
+          <span class="name"></span>
+          <div class="seat-tags">
+            <span class="blind-badge"></span>
+            <span class="dealer-chip">D</span>
+          </div>
+        </div>
+        <div class="avatar-wrap">
+          <div class="avatar-figure">
+            <div class="avatar-head"></div>
+            <div class="avatar-neck"></div>
+            <div class="avatar-torso"></div>
+            <div class="avatar-arm arm-left"></div>
+            <div class="avatar-arm arm-right"></div>
+          </div>
+        </div>
+        <div class="cards"></div>
+        <div class="seat-meta">
+          <span class="chips"></span>
+          <span class="bet"></span>
+        </div>
+        <div class="action-tag"></div>
+      </div>
+    </template>
+
+    <script src="vendor/three/three.min.js"></script>
+    <script src="vendor/three/GLTFLoader.js"></script>
+    <script src="vendor/three/SkeletonUtils.js"></script>
+    <script src="poker3d.js"></script>
+    <script src="game.js"></script>
+  </body>
+</html>
