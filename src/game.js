@@ -2,6 +2,9 @@
   const STARTING_CHIPS = 1500;
   const SMALL_BLIND = 10;
   const BIG_BLIND = 20;
+  const TURN_TIME_MS = 30000;
+  const NPC_MIN_THINK_MS = 5000;
+  const NPC_MAX_THINK_MS = 11000;
   const HANDS_PER_LEVEL = 3;
   const BLIND_LEVELS = [
     { small: 10, big: 20 },
@@ -66,6 +69,11 @@
     autoRunoutInProgress: false,
     replayInProgress: false,
     replayEntryId: null,
+    turnTimerIntervalId: null,
+    turnTimerDeadlineAt: 0,
+    turnTimerRemainingMs: 0,
+    turnTimerSeatIndex: -1,
+    pendingBotThinkTimeoutId: null,
     dealtHoleCounts: [],
     communityVisible: 0,
     currentHandLog: [],
@@ -85,7 +93,6 @@
     cornerCardsHud: document.getElementById("cornerCardsHud"),
     cornerHeroCards: document.getElementById("cornerHeroCards"),
     cornerBoardCards: document.getElementById("cornerBoardCards"),
-    handReadout: document.getElementById("handReadout"),
     dealerHands: document.querySelector(".dealer-hands"),
     communityCards: document.getElementById("communityCards"),
     potAmount: document.getElementById("potAmount"),
@@ -732,6 +739,81 @@
     });
   }
 
+  function sync3DTurnTimer() {
+    if (!window.Poker3D || typeof window.Poker3D.setTurnTimer !== "function") return;
+
+    state.players.forEach((player, index) => {
+      const visible =
+        !state.handOver &&
+        !state.roundTransitioning &&
+        !state.animatingDeal &&
+        index === state.turnTimerSeatIndex &&
+        canAct(player);
+      window.Poker3D.setTurnTimer(index, {
+        visible,
+        totalMs: TURN_TIME_MS,
+        leftMs: visible ? state.turnTimerRemainingMs : 0
+      });
+    });
+  }
+
+  function clearPendingBotThink() {
+    if (state.pendingBotThinkTimeoutId) {
+      window.clearTimeout(state.pendingBotThinkTimeoutId);
+      state.pendingBotThinkTimeoutId = null;
+    }
+  }
+
+  function stopTurnTimer() {
+    if (state.turnTimerIntervalId) {
+      window.clearInterval(state.turnTimerIntervalId);
+      state.turnTimerIntervalId = null;
+    }
+    state.turnTimerDeadlineAt = 0;
+    state.turnTimerRemainingMs = 0;
+    state.turnTimerSeatIndex = -1;
+    clearPendingBotThink();
+    sync3DTurnTimer();
+  }
+
+  function computeTurnRemainingMs() {
+    if (!state.turnTimerDeadlineAt) return 0;
+    return Math.max(0, state.turnTimerDeadlineAt - Date.now());
+  }
+
+  function handleTurnTimeout() {
+    if (state.handOver) return;
+    const index = state.activePlayerIndex;
+    const player = state.players[index];
+    if (!player || !canAct(player)) return;
+
+    stopTurnTimer();
+    const toCall = Math.max(0, state.currentBet - player.currentBet);
+    if (toCall > 0) {
+      setStatus(`${player.name} timed out.`, "Auto-folded.");
+      applyAction(player, "fold");
+      return;
+    }
+    setStatus(`${player.name} timed out.`, "Auto-check.");
+    applyAction(player, "checkcall");
+  }
+
+  function startTurnTimer(seatIndex) {
+    stopTurnTimer();
+    state.turnTimerSeatIndex = seatIndex;
+    state.turnTimerDeadlineAt = Date.now() + TURN_TIME_MS;
+    state.turnTimerRemainingMs = TURN_TIME_MS;
+    sync3DTurnTimer();
+
+    state.turnTimerIntervalId = window.setInterval(() => {
+      state.turnTimerRemainingMs = computeTurnRemainingMs();
+      sync3DTurnTimer();
+      if (state.turnTimerRemainingMs <= 0) {
+        handleTurnTimeout();
+      }
+    }, 250);
+  }
+
   function play3DAction(seatIndex, actionType) {
     if (!window.Poker3D || typeof window.Poker3D.playAction !== "function") return;
     window.Poker3D.playAction(seatIndex, actionType);
@@ -932,6 +1014,7 @@
   async function startHand() {
     state.handId += 1;
     const handId = state.handId;
+    stopTurnTimer();
     const stageIntro = applyPendingStageAdvance();
     applyBlindLevel(currentBlindLevelForHand(state.handId));
     state.handOver = false;
@@ -1077,6 +1160,7 @@
 
     state.activePlayerIndex = index;
     state.waitingForHuman = player.isHuman;
+    startTurnTimer(index);
     if (player.isHuman) {
       cue3D("turn", { seatIndex: index });
     }
@@ -1091,10 +1175,14 @@
 
     render();
     const handId = state.handId;
-    window.setTimeout(() => {
+    const thinkDuration = NPC_MIN_THINK_MS + Math.floor(Math.random() * (NPC_MAX_THINK_MS - NPC_MIN_THINK_MS + 1));
+    const safeDelay = Math.min(Math.max(thinkDuration, NPC_MIN_THINK_MS), Math.max(NPC_MIN_THINK_MS, TURN_TIME_MS - 400));
+    state.pendingBotThinkTimeoutId = window.setTimeout(() => {
+      state.pendingBotThinkTimeoutId = null;
       if (state.handId !== handId || state.handOver) return;
+      if (index !== state.activePlayerIndex || state.waitingForHuman) return;
       botAct(index);
-    }, 700 + Math.floor(Math.random() * 450));
+    }, safeDelay);
   }
 
   function humanAction(action, raiseTo = null) {
@@ -1292,6 +1380,7 @@
       });
     }
 
+    stopTurnTimer();
     state.waitingForHuman = false;
     play3DAction(playerIndex, actionCue);
     if (actionCue === "fold") {
@@ -1657,6 +1746,7 @@
   }
 
   function finalizeHand() {
+    stopTurnTimer();
     setPeek(false);
     state.animatingDeal = false;
     state.roundTransitioning = false;
@@ -1983,7 +2073,6 @@
     renderBoardMini();
     renderCornerCardsHud();
     renderSeats();
-    renderHandReadout();
     renderShowdownPanel();
     renderControls();
     sync3DTableState();
@@ -1992,63 +2081,6 @@
     if (el.replayBtn) {
       el.replayBtn.disabled = !state.handOver || state.replayInProgress || state.lastHandLog.length === 0;
     }
-  }
-
-  function renderHandReadout() {
-    if (!el.handReadout) return;
-
-    const inHandCount = state.players.filter((player) => !player.folded).length;
-    const activeCount = state.players.filter((player) => !player.folded && (player.chips > 0 || player.allIn)).length;
-    const foldedCount = state.players.filter((player) => player.folded).length;
-    const inPotCount = state.players.filter((player) => !player.folded && player.currentBet > 0).length;
-    const allInCount = state.players.filter((player) => !player.folded && player.allIn && !state.handOver).length;
-    const header = `<div class="hand-readout-head"><span>IN HAND ${inHandCount} / ${state.players.length}</span><span>LIVE ${activeCount} · POT ${inPotCount} · FOLD ${foldedCount}${allInCount > 0 ? ` · ALL-IN ${allInCount}` : ""} · TOT=INVESTED</span></div>`;
-
-    const rows = state.players
-      .map((player, index) => {
-        const rowClass = [
-          "hand-readout-row",
-          !state.handOver && index === state.activePlayerIndex ? "active" : "",
-          player.folded ? "folded" : "",
-          !state.handOver && player.allIn && !player.folded ? "allin" : ""
-        ]
-          .filter(Boolean)
-          .join(" ");
-
-        const toCall = Math.max(0, state.currentBet - player.currentBet);
-        let stateLabel = "WAIT";
-        let stateClass = "wait";
-
-        if (player.folded) {
-          stateLabel = "FOLDED";
-          stateClass = "fold";
-        } else if (!state.handOver && index === state.activePlayerIndex) {
-          stateLabel = "ACTING";
-          stateClass = "turn";
-        } else if (!state.handOver && player.allIn) {
-          stateLabel = "ALL-IN";
-          stateClass = "allin";
-        } else if (!state.handOver && toCall > 0) {
-          stateLabel = `CALL ${toCurrency(toCall)}`;
-          stateClass = "call";
-        } else if (!state.handOver && player.currentBet > 0 && player.currentBet === state.currentBet) {
-          stateLabel = "IN POT";
-          stateClass = "inpot";
-        } else if (!state.handOver && player.currentBet > 0) {
-          stateLabel = "POSTED";
-          stateClass = "inpot";
-        } else if (player.lastAction) {
-          stateLabel = player.lastAction.toUpperCase();
-          stateClass = "wait";
-        }
-
-        const name = player.isHuman ? `${player.name} (YOU)` : player.name;
-        const betText = player.currentBet > 0 ? toCurrency(player.currentBet) : "-";
-        return `<div class="${rowClass}"><span class="name">${name}</span><span class="chips">${toCurrency(player.chips)}</span><span class="bet">${betText}</span><span class="total">${toCurrency(player.invested)}</span><span class="state"><span class="state-pill ${stateClass}">${stateLabel}</span></span></div>`;
-      })
-      .join("");
-
-    el.handReadout.innerHTML = `${header}${rows}`;
   }
 
   function renderShowdownPanel() {

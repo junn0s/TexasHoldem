@@ -6,6 +6,7 @@
     resetForNewHand: () => {},
     setTableState: () => {},
     setPlayerState: () => {},
+    setTurnTimer: () => {},
     setSkin: () => {},
     throwCard: () => Promise.resolve(),
     throwChips: () => Promise.resolve(),
@@ -103,6 +104,8 @@
     }
   };
 
+  const TURN_TIMER_DEFAULT_MS = 30000;
+
   const ctx = {
     initialized: false,
     container: null,
@@ -154,8 +157,8 @@
     roomMaterials: null,
     tableMaterials: null,
     defaultCamera: {
-      pos: new THREE.Vector3(0.16, 5.62, 8.72),
-      look: new THREE.Vector3(0, 1.42, 0.8)
+      pos: new THREE.Vector3(0.2, 6.18, 10.28),
+      look: new THREE.Vector3(0, 1.48, 0.86)
     }
   };
 
@@ -831,10 +834,26 @@
         depthTest: true
       });
       const actionSprite = new THREE.Sprite(actionSpriteMaterial);
-      actionSprite.position.set(0, 1.38, 0.15);
+      actionSprite.position.set(0, 1.72, 0.15);
       actionSprite.scale.set(1.48, 0.54, 1);
       actionSprite.visible = false;
       root.add(actionSprite);
+
+      const timerCanvasPack = createTurnTimerCanvas(256);
+      const timerTexture = createCanvasTexture(timerCanvasPack.canvas);
+      const timerSpriteMaterial = new THREE.SpriteMaterial({
+        map: timerTexture,
+        color: 0xffffff,
+        transparent: true,
+        opacity: 0,
+        depthWrite: false,
+        depthTest: true
+      });
+      const timerSprite = new THREE.Sprite(timerSpriteMaterial);
+      timerSprite.position.set(0, 2.18, 0.18);
+      timerSprite.scale.set(0.72, 0.72, 1);
+      timerSprite.visible = false;
+      root.add(timerSprite);
 
       ctx.scene.add(root);
 
@@ -850,6 +869,13 @@
         actions: null,
         ring,
         actionSprite,
+        timerSprite,
+        timerCanvas: timerCanvasPack.canvas,
+        timerCanvasCtx: timerCanvasPack.context,
+        timerTexture,
+        timerVisible: false,
+        timerTotalMs: TURN_TIMER_DEFAULT_MS,
+        timerLeftMs: 0,
         holeCards: [],
         basePos: basePos.clone(),
         baseY: basePos.y,
@@ -1101,6 +1127,92 @@
       material.needsUpdate = true;
     }
     entry.actionSprite.visible = true;
+  }
+
+  function createTurnTimerCanvas(size = 256) {
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const context = canvas.getContext("2d");
+    return { canvas, context };
+  }
+
+  function timerRingColor(ratio) {
+    if (ratio > 0.66) return "#63da9c";
+    if (ratio > 0.33) return "#f2c76c";
+    return "#df6a6a";
+  }
+
+  function drawTurnTimer(entry) {
+    if (!entry || !entry.timerCanvasCtx || !entry.timerTexture) return;
+    const c = entry.timerCanvasCtx;
+    const canvas = entry.timerCanvas;
+    const size = canvas.width;
+    const cx = size / 2;
+    const cy = size / 2;
+    const radius = size * 0.36;
+    const total = Math.max(1, entry.timerTotalMs || TURN_TIMER_DEFAULT_MS);
+    const left = THREE.MathUtils.clamp(entry.timerLeftMs || 0, 0, total);
+    const ratio = left / total;
+    const angle = -Math.PI / 2 + ratio * Math.PI * 2;
+
+    c.clearRect(0, 0, size, size);
+
+    c.save();
+    c.shadowColor = "rgba(0,0,0,0.46)";
+    c.shadowBlur = 14;
+    c.shadowOffsetY = 5;
+    c.beginPath();
+    c.fillStyle = "rgba(10,16,24,0.84)";
+    c.arc(cx, cy, radius + 24, 0, Math.PI * 2);
+    c.fill();
+    c.restore();
+
+    c.lineWidth = 12;
+    c.strokeStyle = "rgba(142, 174, 206, 0.3)";
+    c.beginPath();
+    c.arc(cx, cy, radius, 0, Math.PI * 2);
+    c.stroke();
+
+    c.lineWidth = 14;
+    c.strokeStyle = timerRingColor(ratio);
+    c.beginPath();
+    c.arc(cx, cy, radius, -Math.PI / 2, angle);
+    c.stroke();
+
+    c.strokeStyle = "rgba(222, 233, 244, 0.5)";
+    c.lineWidth = 3;
+    for (let i = 0; i < 12; i += 1) {
+      const tickA = -Math.PI / 2 + (i / 12) * Math.PI * 2;
+      const x1 = cx + Math.cos(tickA) * (radius - 4);
+      const y1 = cy + Math.sin(tickA) * (radius - 4);
+      const x2 = cx + Math.cos(tickA) * (radius + 6);
+      const y2 = cy + Math.sin(tickA) * (radius + 6);
+      c.beginPath();
+      c.moveTo(x1, y1);
+      c.lineTo(x2, y2);
+      c.stroke();
+    }
+
+    c.strokeStyle = "#f4f6f8";
+    c.lineWidth = 7;
+    c.beginPath();
+    c.moveTo(cx, cy);
+    c.lineTo(cx + Math.cos(angle) * (radius - 20), cy + Math.sin(angle) * (radius - 20));
+    c.stroke();
+
+    c.fillStyle = "#ecf2f8";
+    c.beginPath();
+    c.arc(cx, cy, 8, 0, Math.PI * 2);
+    c.fill();
+
+    c.fillStyle = "#c8d8e9";
+    c.font = '700 38px "Rajdhani", sans-serif';
+    c.textAlign = "center";
+    c.textBaseline = "middle";
+    c.fillText(String(Math.ceil(left / 1000)), cx, cy + radius + 28);
+
+    entry.timerTexture.needsUpdate = true;
   }
 
   function createCardMesh(hidden = true, card = null) {
@@ -1442,6 +1554,26 @@
     }
   }
 
+  function setTurnTimer(seatIndex, payload = {}) {
+    const entry = ctx.players[seatIndex];
+    if (!entry || !entry.timerSprite || !entry.timerSprite.material) return;
+
+    entry.timerVisible = !!payload.visible;
+    const totalMs = Number.isFinite(payload.totalMs) ? payload.totalMs : TURN_TIMER_DEFAULT_MS;
+    const leftMs = Number.isFinite(payload.leftMs) ? payload.leftMs : 0;
+    entry.timerTotalMs = Math.max(1, totalMs);
+    entry.timerLeftMs = THREE.MathUtils.clamp(leftMs, 0, entry.timerTotalMs);
+
+    if (!entry.timerVisible) {
+      entry.timerSprite.visible = false;
+      entry.timerSprite.material.opacity = 0;
+      return;
+    }
+
+    entry.timerSprite.visible = true;
+    drawTurnTimer(entry);
+  }
+
   function resetForNewHand() {
     if (ctx.stageCueTimer) {
       window.clearTimeout(ctx.stageCueTimer);
@@ -1460,6 +1592,9 @@
       entry.actionTimer = 0;
       entry.actionDuration = 0.4;
       entry.actionPower = 0;
+      entry.timerVisible = false;
+      entry.timerTotalMs = TURN_TIMER_DEFAULT_MS;
+      entry.timerLeftMs = 0;
       entry.peeking = false;
       entry.fadeCurrent = 1;
       entry.fadeTarget = 1;
@@ -1470,6 +1605,10 @@
       if (entry.actionSprite && entry.actionSprite.material) {
         entry.actionSprite.visible = false;
         entry.actionSprite.material.opacity = 0;
+      }
+      if (entry.timerSprite && entry.timerSprite.material) {
+        entry.timerSprite.visible = false;
+        entry.timerSprite.material.opacity = 0;
       }
 
       entry.holeCards.forEach((cardMesh, cardIndex) => {
@@ -1650,7 +1789,7 @@
         ctx.peekSavedLook.copy(ctx.cameraTargetLook);
       }
       ctx.peekActive = true;
-      setCameraTarget(new THREE.Vector3(0.16, 5.95, 8.62), new THREE.Vector3(0, 2.02, 4.66));
+      setCameraTarget(new THREE.Vector3(0.2, 6.28, 9.38), new THREE.Vector3(0, 2.02, 4.72));
       return;
     }
 
@@ -1669,7 +1808,7 @@
     }
 
     if (type === "stageStart") {
-      setCameraTarget(new THREE.Vector3(0.22, 6.48, 9.98), new THREE.Vector3(0, 1.36, 0.52));
+      setCameraTarget(new THREE.Vector3(0.26, 6.94, 11.06), new THREE.Vector3(0, 1.42, 0.62));
       ctx.cameraShakeTime = 0.26;
       ctx.cameraShakeStrength = 0.06;
       ctx.stageCueTimer = window.setTimeout(() => {
@@ -1680,7 +1819,7 @@
     }
 
     if (type === "stageClear") {
-      setCameraTarget(new THREE.Vector3(0.14, 6.18, 7.74), new THREE.Vector3(0, 1.4, 0.78));
+      setCameraTarget(new THREE.Vector3(0.2, 6.62, 9.26), new THREE.Vector3(0, 1.44, 0.86));
       ctx.cameraShakeTime = 0.22;
       ctx.cameraShakeStrength = 0.08;
       ctx.stageCueTimer = window.setTimeout(() => {
@@ -1696,12 +1835,12 @@
     }
 
     if (type === "boardFocus") {
-      setCameraTarget(new THREE.Vector3(0.1, 6.26, 7.22), new THREE.Vector3(0, 1.38, 0.86));
+      setCameraTarget(new THREE.Vector3(0.16, 6.8, 8.66), new THREE.Vector3(0, 1.44, 0.94));
       return;
     }
 
     if (type === "showdown") {
-      setCameraTarget(new THREE.Vector3(0.15, 5.58, 8.32), new THREE.Vector3(0, 1.34, 0.42));
+      setCameraTarget(new THREE.Vector3(0.2, 6.12, 9.52), new THREE.Vector3(0, 1.4, 0.56));
       return;
     }
 
@@ -1748,8 +1887,8 @@
     }
 
     return {
-      pos: close ? new THREE.Vector3(0.22, 4.72, 8.42) : new THREE.Vector3(0.45, 5.12, 9.46),
-      look: new THREE.Vector3(0, 1.38, 3.36)
+      pos: close ? new THREE.Vector3(0.26, 5.22, 9.68) : new THREE.Vector3(0.52, 5.72, 10.96),
+      look: new THREE.Vector3(0, 1.46, 3.44)
     };
   }
 
@@ -1877,12 +2016,27 @@
           const pulse = entry.active ? 0.06 * Math.sin(ctx.time * 8 + index) : 0;
           const targetOpacity = (entry.folded ? 0.72 : 0.9) + pulse;
           material.opacity += (targetOpacity - material.opacity) * (1 - Math.exp(-dt * 10));
-          entry.actionSprite.position.y = 1.34 + (entry.active ? 0.03 : 0);
+          entry.actionSprite.position.y = 1.72 + (entry.active ? 0.05 : 0);
           const targetScale = entry.active ? 1.62 : 1.48;
           entry.actionSprite.scale.x += (targetScale - entry.actionSprite.scale.x) * (1 - Math.exp(-dt * 9));
           entry.actionSprite.scale.y += ((targetScale * 0.36) - entry.actionSprite.scale.y) * (1 - Math.exp(-dt * 9));
         } else {
           material.opacity = 0;
+        }
+      }
+
+      if (entry.timerSprite && entry.timerSprite.material) {
+        const timerMaterial = entry.timerSprite.material;
+        if (entry.timerVisible && entry.timerSprite.visible) {
+          const timerOpacityTarget = entry.active ? 0.98 : 0.82;
+          timerMaterial.opacity += (timerOpacityTarget - timerMaterial.opacity) * (1 - Math.exp(-dt * 10));
+          const bob = entry.active ? Math.sin(ctx.time * 7 + index) * 0.03 : 0;
+          entry.timerSprite.position.y = 2.18 + bob;
+          const targetScale = entry.active ? 0.76 : 0.72;
+          entry.timerSprite.scale.x += (targetScale - entry.timerSprite.scale.x) * (1 - Math.exp(-dt * 8));
+          entry.timerSprite.scale.y += (targetScale - entry.timerSprite.scale.y) * (1 - Math.exp(-dt * 8));
+        } else {
+          timerMaterial.opacity = 0;
         }
       }
     });
@@ -1914,6 +2068,7 @@
     resetForNewHand,
     setTableState,
     setPlayerState,
+    setTurnTimer,
     setSkin,
     throwCard,
     throwChips,
