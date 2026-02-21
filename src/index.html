@@ -27,8 +27,20 @@
           </div>
         </div>
         <div class="meta">
+          <div class="chip-stack chip-stack-accent" id="stageInfo">Stage 1 · Back Room</div>
           <div class="chip-stack" id="blindInfo">Blinds 10 / 20</div>
+          <div class="chip-stack" id="blindLevel">Level 1 · Hand 0</div>
           <div class="chip-stack chip-stack-accent" id="blindPositions">SB -- / BB --</div>
+          <label class="skin-select-wrap" for="skinSelect">
+            <span>Skin</span>
+            <select id="skinSelect" aria-label="Table skin">
+              <option value="classic">Classic</option>
+              <option value="neon">Neon</option>
+              <option value="velvet">Velvet</option>
+            </select>
+          </label>
+          <button class="next-hand tertiary" id="soundToggle" type="button">Sound On</button>
+          <button class="next-hand secondary" id="replayBtn" disabled>Replay</button>
           <button class="next-hand" id="nextHandBtn" disabled>Next Hand</button>
         </div>
       </header>
@@ -70,6 +82,23 @@
 
           <div class="deal-layer" id="dealLayer" aria-hidden="true"></div>
           <aside class="hand-readout" id="handReadout" aria-live="polite"></aside>
+          <aside class="hand-history" id="handHistory" aria-live="polite"></aside>
+          <section class="tutorial-panel" id="tutorialPanel" aria-live="polite">
+            <div class="tutorial-title">Quick Keys</div>
+            <div class="tutorial-grid">
+              <span><kbd>F</kbd> Fold</span>
+              <span><kbd>C</kbd> Check/Call</span>
+              <span><kbd>R</kbd> Raise</span>
+              <span><kbd>P</kbd> Peek (hold)</span>
+              <span><kbd>N</kbd> Next Hand</span>
+              <span><kbd>H</kbd> Replay</span>
+            </div>
+            <button id="tutorialDismissBtn" type="button">Close Tips</button>
+          </section>
+          <section class="stage-banner" id="stageBanner" aria-live="polite">
+            <div class="stage-banner-title" id="stageBannerTitle"></div>
+            <div class="stage-banner-sub" id="stageBannerSub"></div>
+          </section>
 
           <div class="seat seat-top" data-seat="0"></div>
           <div class="seat seat-right" data-seat="1"></div>
@@ -83,6 +112,7 @@
           <div class="status-main" id="statusMain">Start a new hand.</div>
           <div class="status-sub" id="statusSub">You are seat 3.</div>
         </div>
+        <section class="showdown-panel" id="showdownPanel" aria-live="polite"></section>
 
         <div class="controls" id="controls">
           <button id="foldBtn" disabled>Fold</button>

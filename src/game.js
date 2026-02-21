@@ -2,6 +2,26 @@
   const STARTING_CHIPS = 1500;
   const SMALL_BLIND = 10;
   const BIG_BLIND = 20;
+  const HANDS_PER_LEVEL = 3;
+  const BLIND_LEVELS = [
+    { small: 10, big: 20 },
+    { small: 15, big: 30 },
+    { small: 25, big: 50 },
+    { small: 40, big: 80 },
+    { small: 60, big: 120 },
+    { small: 100, big: 200 }
+  ];
+  const TOURNAMENT_STAGES = [
+    { name: "Back Room", npcChips: 1500, bonus: 0, botAggro: 1.0 },
+    { name: "Main Floor", npcChips: 2200, bonus: 220, botAggro: 1.14 },
+    { name: "VIP Lounge", npcChips: 3200, bonus: 340, botAggro: 1.28 },
+    { name: "Boss Table", npcChips: 4600, bonus: 520, botAggro: 1.42 }
+  ];
+  const HISTORY_MAX = 180;
+  const HISTORY_PREVIEW = 22;
+  const SKIN_STORAGE_KEY = "underground-holdem-skin";
+  const TUTORIAL_STORAGE_KEY = "underground-holdem-tutorial-dismissed";
+  const SOUND_STORAGE_KEY = "underground-holdem-sound-enabled";
 
   const RANKS = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14];
   const SUITS = ["S", "H", "D", "C"];
@@ -35,14 +55,25 @@
     activePlayerIndex: -1,
     handOver: true,
     handId: 0,
+    tournamentStage: 0,
+    pendingStageAdvance: false,
+    blindLevel: 0,
     waitingForHuman: false,
     actionLock: false,
     holePeek: false,
     animatingDeal: false,
     roundTransitioning: false,
     autoRunoutInProgress: false,
+    replayInProgress: false,
+    replayEntryId: null,
     dealtHoleCounts: [],
-    communityVisible: 0
+    communityVisible: 0,
+    currentHandLog: [],
+    lastHandLog: [],
+    historySeq: 0,
+    skin: "classic",
+    tutorialHidden: false,
+    stageBannerTimer: null
   };
 
   const el = {
@@ -57,16 +88,40 @@
     potAmount: document.getElementById("potAmount"),
     statusMain: document.getElementById("statusMain"),
     statusSub: document.getElementById("statusSub"),
+    stageBanner: document.getElementById("stageBanner"),
+    stageBannerTitle: document.getElementById("stageBannerTitle"),
+    stageBannerSub: document.getElementById("stageBannerSub"),
+    showdownPanel: document.getElementById("showdownPanel"),
     tableScene: document.getElementById("tableScene"),
     nextHandBtn: document.getElementById("nextHandBtn"),
+    stageInfo: document.getElementById("stageInfo"),
     blindInfo: document.getElementById("blindInfo"),
+    blindLevel: document.getElementById("blindLevel"),
     blindPositions: document.getElementById("blindPositions"),
+    handHistory: document.getElementById("handHistory"),
+    replayBtn: document.getElementById("replayBtn"),
+    tutorialPanel: document.getElementById("tutorialPanel"),
+    tutorialDismissBtn: document.getElementById("tutorialDismissBtn"),
+    skinSelect: document.getElementById("skinSelect"),
+    soundToggle: document.getElementById("soundToggle"),
     foldBtn: document.getElementById("foldBtn"),
     checkCallBtn: document.getElementById("checkCallBtn"),
     peekBtn: document.getElementById("peekBtn"),
     raiseBtn: document.getElementById("raiseBtn"),
     raiseRange: document.getElementById("raiseRange"),
     raiseAmount: document.getElementById("raiseAmount")
+  };
+
+  const audio = {
+    context: null,
+    master: null,
+    ambientGain: null,
+    ambientLfoGain: null,
+    ambientOscA: null,
+    ambientOscB: null,
+    ambientLfo: null,
+    enabled: true,
+    unlocked: false
   };
 
   function createPlayers() {
@@ -90,7 +145,8 @@
       acted: false,
       lastAction: "",
       actionTone: "",
-      showdown: null
+      showdown: null,
+      invested: 0
     };
   }
 
@@ -105,10 +161,16 @@
       player.lastAction = "";
       player.actionTone = "";
       player.showdown = null;
+      player.invested = 0;
     });
     state.dealerIndex = -1;
     state.smallBlindIndex = -1;
     state.bigBlindIndex = -1;
+    state.blindLevel = 0;
+    state.smallBlind = SMALL_BLIND;
+    state.bigBlind = BIG_BLIND;
+    state.tournamentStage = 0;
+    state.pendingStageAdvance = false;
     state.dealtHoleCounts = state.players.map(() => 0);
     state.communityVisible = 0;
   }
@@ -190,6 +252,387 @@
   function setPlayerAction(player, text, tone = "") {
     player.lastAction = text;
     player.actionTone = tone;
+  }
+
+  function currentBlindLevelForHand(handId) {
+    const index = Math.floor(Math.max(0, handId - 1) / HANDS_PER_LEVEL);
+    return Math.min(BLIND_LEVELS.length - 1, index);
+  }
+
+  function applyBlindLevel(levelIndex) {
+    const safeIndex = Math.max(0, Math.min(BLIND_LEVELS.length - 1, levelIndex));
+    const level = BLIND_LEVELS[safeIndex];
+    state.blindLevel = safeIndex;
+    state.smallBlind = level.small;
+    state.bigBlind = level.big;
+  }
+
+  function stageProfileFor(levelIndex) {
+    const clamped = Math.max(0, levelIndex);
+    const lastIndex = TOURNAMENT_STAGES.length - 1;
+    if (clamped <= lastIndex) {
+      return TOURNAMENT_STAGES[clamped];
+    }
+
+    const base = TOURNAMENT_STAGES[lastIndex];
+    const extra = clamped - lastIndex;
+    return {
+      name: `Legend Pit ${extra}`,
+      npcChips: Math.round(base.npcChips * (1 + extra * 0.45)),
+      bonus: Math.round(base.bonus * (1 + extra * 0.28)),
+      botAggro: Math.min(2.1, base.botAggro + extra * 0.12)
+    };
+  }
+
+  function currentStageProfile() {
+    return stageProfileFor(state.tournamentStage);
+  }
+
+  function humanPlayer() {
+    return state.players.find((player) => player.isHuman) || null;
+  }
+
+  function npcPlayers() {
+    return state.players.filter((player) => !player.isHuman);
+  }
+
+  function shouldAdvanceTournamentStage() {
+    const hero = humanPlayer();
+    if (!hero || hero.chips <= 0) return false;
+    return npcPlayers().every((player) => player.chips <= 0);
+  }
+
+  function queueTournamentAdvanceIfCleared() {
+    if (state.pendingStageAdvance) return;
+    if (!shouldAdvanceTournamentStage()) return;
+    const nextProfile = stageProfileFor(state.tournamentStage + 1);
+    state.pendingStageAdvance = true;
+    logHistory(`Stage ${state.tournamentStage + 1} clear. Next: Stage ${state.tournamentStage + 2} ${nextProfile.name}.`, "stage");
+    setStatus(`Stage ${state.tournamentStage + 1} clear!`, `Press Next Hand to enter Stage ${state.tournamentStage + 2}.`);
+    showStageBanner(
+      `Stage ${state.tournamentStage + 1} Clear`,
+      `Next: Stage ${state.tournamentStage + 2} · ${nextProfile.name}`,
+      "stage-clear",
+      2400
+    );
+    cue3D("stageClear");
+    playSfx("stage");
+  }
+
+  function applyPendingStageAdvance() {
+    if (!state.pendingStageAdvance) return "";
+
+    state.pendingStageAdvance = false;
+    state.tournamentStage += 1;
+    const profile = currentStageProfile();
+    const hero = humanPlayer();
+
+    if (hero && hero.chips > 0 && profile.bonus > 0) {
+      hero.chips += profile.bonus;
+    }
+
+    npcPlayers().forEach((player) => {
+      player.chips = profile.npcChips;
+      player.hand = [];
+      player.folded = false;
+      player.allIn = false;
+      player.currentBet = 0;
+      player.acted = false;
+      player.lastAction = "";
+      player.actionTone = "";
+      player.showdown = null;
+      player.invested = 0;
+    });
+
+    state.dealerIndex = -1;
+    state.smallBlindIndex = -1;
+    state.bigBlindIndex = -1;
+
+    const bonusText = profile.bonus > 0 ? ` | Bonus +${toCurrency(profile.bonus)}` : "";
+    return `Stage ${state.tournamentStage + 1} - ${profile.name}: NPC stacks ${toCurrency(profile.npcChips)}${bonusText}`;
+  }
+
+  function clearCurrentHandHistory() {
+    state.currentHandLog = [];
+    state.historySeq = 0;
+    state.replayEntryId = null;
+  }
+
+  function logHistory(text, type = "info") {
+    if (!text) return;
+    state.historySeq += 1;
+    state.currentHandLog.push({
+      id: state.historySeq,
+      text,
+      type
+    });
+    if (state.currentHandLog.length > HISTORY_MAX) {
+      state.currentHandLog.splice(0, state.currentHandLog.length - HISTORY_MAX);
+    }
+  }
+
+  function applySkin(skinName) {
+    const valid = ["classic", "neon", "velvet"];
+    const nextSkin = valid.includes(skinName) ? skinName : "classic";
+    state.skin = nextSkin;
+    document.documentElement.setAttribute("data-skin", nextSkin);
+    if (el.skinSelect) {
+      el.skinSelect.value = nextSkin;
+    }
+    if (window.Poker3D && typeof window.Poker3D.setSkin === "function") {
+      window.Poker3D.setSkin(nextSkin);
+    }
+    try {
+      window.localStorage.setItem(SKIN_STORAGE_KEY, nextSkin);
+    } catch (error) {
+      // Ignore storage restrictions.
+    }
+  }
+
+  function setTutorialVisibility(hidden) {
+    state.tutorialHidden = !!hidden;
+    if (el.tutorialPanel) {
+      el.tutorialPanel.classList.toggle("hidden", state.tutorialHidden);
+    }
+    try {
+      window.localStorage.setItem(TUTORIAL_STORAGE_KEY, state.tutorialHidden ? "1" : "0");
+    } catch (error) {
+      // Ignore storage restrictions.
+    }
+  }
+
+  function loadPreferences() {
+    let storedSkin = "classic";
+    let tutorialHidden = false;
+    let soundEnabled = true;
+    try {
+      storedSkin = window.localStorage.getItem(SKIN_STORAGE_KEY) || "classic";
+      tutorialHidden = window.localStorage.getItem(TUTORIAL_STORAGE_KEY) === "1";
+      soundEnabled = window.localStorage.getItem(SOUND_STORAGE_KEY) !== "0";
+    } catch (error) {
+      // Ignore storage restrictions.
+    }
+    applySkin(storedSkin);
+    setTutorialVisibility(tutorialHidden);
+    audio.enabled = soundEnabled;
+    setSoundToggleUi();
+  }
+
+  function setSoundToggleUi() {
+    if (!el.soundToggle) return;
+    el.soundToggle.textContent = audio.enabled ? "Sound On" : "Sound Off";
+    el.soundToggle.classList.toggle("off", !audio.enabled);
+  }
+
+  function ensureAudioContext() {
+    if (!audio.enabled) return false;
+    if (audio.context) return true;
+
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) return false;
+
+    const context = new AudioCtx();
+    const master = context.createGain();
+    master.gain.value = 0.4;
+    master.connect(context.destination);
+
+    const ambientGain = context.createGain();
+    ambientGain.gain.value = 0.035;
+    ambientGain.connect(master);
+
+    const ambientLfoGain = context.createGain();
+    ambientLfoGain.gain.value = 0.008;
+    ambientLfoGain.connect(ambientGain.gain);
+
+    const ambientLfo = context.createOscillator();
+    ambientLfo.type = "sine";
+    ambientLfo.frequency.value = 0.19;
+    ambientLfo.connect(ambientLfoGain);
+
+    const ambientOscA = context.createOscillator();
+    ambientOscA.type = "triangle";
+    ambientOscA.frequency.value = 55;
+    ambientOscA.connect(ambientGain);
+
+    const ambientOscB = context.createOscillator();
+    ambientOscB.type = "sine";
+    ambientOscB.frequency.value = 83;
+    ambientOscB.connect(ambientGain);
+
+    audio.context = context;
+    audio.master = master;
+    audio.ambientGain = ambientGain;
+    audio.ambientLfoGain = ambientLfoGain;
+    audio.ambientLfo = ambientLfo;
+    audio.ambientOscA = ambientOscA;
+    audio.ambientOscB = ambientOscB;
+    return true;
+  }
+
+  function unlockAudio() {
+    if (!audio.enabled) return;
+    if (!ensureAudioContext()) return;
+
+    const context = audio.context;
+    if (!context) return;
+
+    if (context.state === "suspended") {
+      context.resume().catch(() => {});
+    }
+
+    if (!audio.unlocked) {
+      const now = context.currentTime;
+      audio.ambientOscA.start(now);
+      audio.ambientOscB.start(now);
+      audio.ambientLfo.start(now);
+      audio.unlocked = true;
+    }
+  }
+
+  function setAudioEnabled(nextEnabled) {
+    audio.enabled = !!nextEnabled;
+    setSoundToggleUi();
+    try {
+      window.localStorage.setItem(SOUND_STORAGE_KEY, audio.enabled ? "1" : "0");
+    } catch (error) {
+      // Ignore storage restrictions.
+    }
+
+    if (!audio.enabled) {
+      if (audio.master && audio.context) {
+        audio.master.gain.setTargetAtTime(0, audio.context.currentTime, 0.03);
+      }
+      return;
+    }
+
+    if (!ensureAudioContext()) return;
+    unlockAudio();
+    if (audio.master && audio.context) {
+      audio.master.gain.setTargetAtTime(0.4, audio.context.currentTime, 0.04);
+    }
+  }
+
+  function scheduleTone({ type = "sine", freq = 220, gain = 0.1, attack = 0.004, release = 0.14, duration = 0.12 } = {}) {
+    if (!audio.enabled || !audio.context || !audio.master) return;
+    const context = audio.context;
+    const now = context.currentTime;
+
+    const osc = context.createOscillator();
+    const amp = context.createGain();
+    osc.type = type;
+    osc.frequency.value = freq;
+    amp.gain.value = 0;
+
+    osc.connect(amp);
+    amp.connect(audio.master);
+
+    amp.gain.linearRampToValueAtTime(gain, now + attack);
+    amp.gain.exponentialRampToValueAtTime(0.0001, now + duration + release);
+
+    osc.start(now);
+    osc.stop(now + duration + release + 0.02);
+  }
+
+  function scheduleNoiseClick({ gain = 0.06, duration = 0.06 } = {}) {
+    if (!audio.enabled || !audio.context || !audio.master) return;
+    const context = audio.context;
+    const frameCount = Math.max(1, Math.floor(context.sampleRate * duration));
+    const buffer = context.createBuffer(1, frameCount, context.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < frameCount; i += 1) {
+      const env = 1 - i / frameCount;
+      data[i] = (Math.random() * 2 - 1) * env * env;
+    }
+
+    const src = context.createBufferSource();
+    src.buffer = buffer;
+    const filter = context.createBiquadFilter();
+    filter.type = "highpass";
+    filter.frequency.value = 600;
+    const amp = context.createGain();
+    amp.gain.value = gain;
+
+    src.connect(filter);
+    filter.connect(amp);
+    amp.connect(audio.master);
+    src.start();
+  }
+
+  function playSfx(type, payload = {}) {
+    if (!audio.enabled) return;
+    unlockAudio();
+    if (!audio.context) return;
+
+    if (type === "card") {
+      scheduleNoiseClick({ gain: 0.04, duration: 0.045 });
+      scheduleTone({ type: "triangle", freq: 520, gain: 0.03, duration: 0.04, release: 0.08 });
+      return;
+    }
+
+    if (type === "chip") {
+      const amount = Math.max(0, Number(payload.amount) || 0);
+      const intensity = clamp(amount / 180, 0.15, 1);
+      scheduleNoiseClick({ gain: 0.05 + intensity * 0.04, duration: 0.05 });
+      scheduleTone({ type: "square", freq: 260 + intensity * 120, gain: 0.05 + intensity * 0.04, duration: 0.05, release: 0.11 });
+      return;
+    }
+
+    if (type === "fold") {
+      scheduleTone({ type: "sawtooth", freq: 130, gain: 0.055, duration: 0.07, release: 0.13 });
+      return;
+    }
+
+    if (type === "call") {
+      scheduleTone({ type: "triangle", freq: 420, gain: 0.05, duration: 0.05, release: 0.11 });
+      return;
+    }
+
+    if (type === "raise") {
+      scheduleTone({ type: "triangle", freq: 420, gain: 0.06, duration: 0.05, release: 0.12 });
+      scheduleTone({ type: "triangle", freq: 620, gain: 0.06, duration: 0.08, release: 0.14 });
+      return;
+    }
+
+    if (type === "allin") {
+      scheduleTone({ type: "sawtooth", freq: 200, gain: 0.085, duration: 0.08, release: 0.14 });
+      scheduleTone({ type: "sawtooth", freq: 320, gain: 0.085, duration: 0.11, release: 0.16 });
+      scheduleNoiseClick({ gain: 0.075, duration: 0.09 });
+      return;
+    }
+
+    if (type === "win") {
+      scheduleTone({ type: "triangle", freq: 392, gain: 0.08, duration: 0.08, release: 0.13 });
+      scheduleTone({ type: "triangle", freq: 523, gain: 0.08, duration: 0.1, release: 0.14 });
+      scheduleTone({ type: "triangle", freq: 659, gain: 0.08, duration: 0.14, release: 0.18 });
+      return;
+    }
+
+    if (type === "stage") {
+      scheduleTone({ type: "triangle", freq: 349, gain: 0.08, duration: 0.08, release: 0.14 });
+      scheduleTone({ type: "triangle", freq: 523, gain: 0.085, duration: 0.12, release: 0.16 });
+      scheduleTone({ type: "triangle", freq: 698, gain: 0.085, duration: 0.18, release: 0.2 });
+    }
+  }
+
+  function showStageBanner(title, sub = "", tone = "stage-start", duration = 1700) {
+    if (!el.stageBanner || !el.stageBannerTitle || !el.stageBannerSub) return;
+    if (state.stageBannerTimer) {
+      window.clearTimeout(state.stageBannerTimer);
+      state.stageBannerTimer = null;
+    }
+
+    el.stageBanner.classList.remove("stage-clear", "stage-start", "show");
+    el.stageBannerTitle.textContent = title;
+    el.stageBannerSub.textContent = sub;
+    el.stageBanner.classList.add(tone === "stage-clear" ? "stage-clear" : "stage-start");
+
+    window.requestAnimationFrame(() => {
+      el.stageBanner.classList.add("show");
+    });
+
+    state.stageBannerTimer = window.setTimeout(() => {
+      el.stageBanner.classList.remove("show");
+    }, Math.max(900, duration));
   }
 
   function setPeek(active) {
@@ -405,6 +848,7 @@
           if (state.handId !== handId || state.handOver) return;
 
           await throwCardToSeat(seatIndex, round);
+          playSfx("card");
           state.dealtHoleCounts[seatIndex] = Math.min(2, (state.dealtHoleCounts[seatIndex] || 0) + 1);
           render();
           await sleep(55);
@@ -431,6 +875,7 @@
 
         const cardIndex = state.communityVisible;
         await throwCardToCommunity(cardIndex);
+        playSfx("card");
         state.communityVisible += 1;
         render();
         await sleep(70);
@@ -448,6 +893,8 @@
     const posted = commitChips(player, amount);
     if (posted > 0) {
       setPlayerAction(player, `${label} ${toCurrency(posted)}`, "strong");
+      logHistory(`${player.name} posts ${label} ${toCurrency(posted)}.`, "action");
+      playSfx("chip", { amount: posted });
     }
     return posted;
   }
@@ -457,6 +904,7 @@
     const committed = Math.min(amount, player.chips);
     player.chips -= committed;
     player.currentBet += committed;
+    player.invested += committed;
     state.pot += committed;
     if (player.chips === 0) {
       player.allIn = true;
@@ -480,6 +928,8 @@
   async function startHand() {
     state.handId += 1;
     const handId = state.handId;
+    const stageIntro = applyPendingStageAdvance();
+    applyBlindLevel(currentBlindLevelForHand(state.handId));
     state.handOver = false;
     state.waitingForHuman = false;
     state.actionLock = false;
@@ -487,6 +937,8 @@
     state.animatingDeal = false;
     state.roundTransitioning = false;
     state.autoRunoutInProgress = false;
+    state.replayInProgress = false;
+    state.replayEntryId = null;
     state.communityCards = [];
     state.communityVisible = 0;
     state.pot = 0;
@@ -494,12 +946,18 @@
     state.currentBet = 0;
     state.minRaise = state.bigBlind;
     state.activePlayerIndex = -1;
+    clearCurrentHandHistory();
     clearDealLayer();
+    if (stageIntro) {
+      logHistory(stageIntro, "stage");
+    }
 
     const alive = playersStillAlive();
     if (alive.length <= 1) {
       resetTable();
-      setStatus("New table. Everyone re-bought.", "Fresh stacks: 1,500 chips each.");
+      applyBlindLevel(currentBlindLevelForHand(state.handId));
+      setStatus("Run reset.", "You busted or table ended. Stage returns to 1.");
+      logHistory("Run reset: all players re-bought to 1,500 chips (Stage 1).", "stage");
     }
 
     state.dealerIndex = nextIndex(state.dealerIndex, (p) => p.chips > 0);
@@ -513,6 +971,7 @@
       player.lastAction = "";
       player.actionTone = "";
       player.showdown = null;
+      player.invested = 0;
     });
     state.dealtHoleCounts = state.players.map(() => 0);
     if (window.Poker3D && typeof window.Poker3D.resetForNewHand === "function") {
@@ -533,6 +992,24 @@
     const bbIndex = nextIndex(sbIndex, (p) => p.chips > 0);
     state.smallBlindIndex = sbIndex;
     state.bigBlindIndex = bbIndex;
+
+    logHistory(
+      `Hand #${state.handId} starts. Stage ${state.tournamentStage + 1} ${currentStageProfile().name}. Level ${state.blindLevel + 1} (${toCurrency(state.smallBlind)}/${toCurrency(state.bigBlind)}).`,
+      "street"
+    );
+    if (state.handId === 1 || stageIntro) {
+      const profile = currentStageProfile();
+      const bonusText = profile.bonus > 0 ? ` | Bonus +${toCurrency(profile.bonus)}` : "";
+      showStageBanner(
+        `Stage ${state.tournamentStage + 1} · ${profile.name}`,
+        `NPC ${toCurrency(profile.npcChips)}${bonusText}`,
+        "stage-start",
+        2300
+      );
+      cue3D("stageStart");
+      playSfx("stage");
+    }
+    logHistory(`Dealer button: ${state.players[state.dealerIndex].name}.`, "info");
 
     const sbPosted = postBlind(state.players[sbIndex], state.smallBlind, "SB");
     const bbPosted = postBlind(state.players[bbIndex], state.bigBlind, "BB");
@@ -565,6 +1042,7 @@
       "Preflop started.",
       `Dealer ${state.players[state.dealerIndex].name} | SB ${state.players[sbIndex].name} ${toCurrency(state.smallBlind)} | BB ${state.players[bbIndex].name} ${toCurrency(state.bigBlind)}`
     );
+    logHistory("Preflop action starts.", "street");
     cue3D("handStart");
     render();
     await animateHoleCards();
@@ -595,7 +1073,9 @@
 
     state.activePlayerIndex = index;
     state.waitingForHuman = player.isHuman;
-    cue3D("turn", { seatIndex: index });
+    if (player.isHuman) {
+      cue3D("turn", { seatIndex: index });
+    }
 
     if (player.isHuman) {
       const toCall = Math.max(0, state.currentBet - player.currentBet);
@@ -635,17 +1115,24 @@
     const toCall = Math.max(0, state.currentBet - player.currentBet);
     const strength = estimateStrength(player);
     const roll = Math.random();
+    const aggro = currentStageProfile().botAggro || 1;
+    const aggroDelta = Math.max(0, aggro - 1);
 
     if (toCall > 0) {
-      if (state.stage === "preflop" && strength < 0.42 && roll < 0.72) {
+      const weakPreflopFold = clamp(0.72 - aggroDelta * 0.24, 0.36, 0.72);
+      const weakPostflopFold = clamp(0.55 - aggroDelta * 0.22, 0.24, 0.55);
+      const raiseChanceCalled = clamp(0.58 + aggroDelta * 0.24, 0.58, 0.9);
+      const raiseStrengthCalled = 0.76 - aggroDelta * 0.08;
+
+      if (state.stage === "preflop" && strength < 0.42 && roll < weakPreflopFold) {
         applyAction(player, "fold");
         return;
       }
-      if (strength < 0.3 && roll < 0.55) {
+      if (strength < 0.3 && roll < weakPostflopFold) {
         applyAction(player, "fold");
         return;
       }
-      if (strength > 0.76 && player.chips > toCall + state.bigBlind && roll < 0.58) {
+      if (strength > raiseStrengthCalled && player.chips > toCall + state.bigBlind && roll < raiseChanceCalled) {
         applyAction(player, "raise", botRaiseTarget(player, strength));
         return;
       }
@@ -653,7 +1140,9 @@
       return;
     }
 
-    if (strength > 0.68 && player.chips > state.bigBlind && roll < 0.54) {
+    const raiseStrengthFree = 0.68 - aggroDelta * 0.1;
+    const raiseChanceFree = clamp(0.54 + aggroDelta * 0.22, 0.54, 0.88);
+    if (strength > raiseStrengthFree && player.chips > state.bigBlind && roll < raiseChanceFree) {
       applyAction(player, "raise", botRaiseTarget(player, strength));
       return;
     }
@@ -697,6 +1186,7 @@
       player.folded = true;
       player.acted = true;
       setPlayerAction(player, "Fold", "danger");
+      logHistory(`${player.name} folds.`, "action");
       actionCue = "fold";
       if (player.isHuman) {
         setPeek(false);
@@ -705,6 +1195,7 @@
       if (toCall === 0) {
         player.acted = true;
         setPlayerAction(player, "Check");
+        logHistory(`${player.name} checks.`, "action");
         actionCue = "check";
       } else {
         const paid = commitChips(player, toCall);
@@ -712,10 +1203,12 @@
 
         if (paid < toCall) {
           setPlayerAction(player, `All-in ${toCurrency(player.currentBet)}`, "strong");
+          logHistory(`${player.name} goes all-in for ${toCurrency(player.currentBet)}.`, "action");
           didAllIn = true;
           actionCue = "allin";
         } else {
           setPlayerAction(player, `Call ${toCurrency(paid)}`);
+          logHistory(`${player.name} calls ${toCurrency(paid)}.`, "action");
           actionCue = "call";
         }
       }
@@ -763,18 +1256,22 @@
       if (target <= prevBet) {
         player.acted = true;
         setPlayerAction(player, `Call ${toCurrency(toCall)}`);
+        logHistory(`${player.name} calls ${toCurrency(toCall)}.`, "action");
         actionCue = "call";
       } else {
         player.acted = true;
         if (player.allIn) {
           setPlayerAction(player, `All-in ${toCurrency(target)}`, "strong");
+          logHistory(`${player.name} shoves all-in to ${toCurrency(target)}.`, "action");
           didAllIn = true;
           actionCue = "allin";
         } else if (prevBet === 0) {
           setPlayerAction(player, `Bet ${toCurrency(target)}`, "strong");
+          logHistory(`${player.name} bets to ${toCurrency(target)}.`, "action");
           actionCue = "bet";
         } else {
           setPlayerAction(player, `Raise ${toCurrency(target)}`, "strong");
+          logHistory(`${player.name} raises to ${toCurrency(target)}.`, "action");
           actionCue = "raise";
         }
       }
@@ -783,6 +1280,7 @@
     }
 
     if (reopened) {
+      logHistory(`Action re-opened by ${player.name}.`, "info");
       state.players.forEach((p) => {
         if (p !== player && canAct(p)) {
           p.acted = false;
@@ -792,11 +1290,21 @@
 
     state.waitingForHuman = false;
     play3DAction(playerIndex, actionCue);
+    if (actionCue === "fold") {
+      playSfx("fold");
+    } else if (actionCue === "call") {
+      playSfx("call");
+    } else if (actionCue === "raise" || actionCue === "bet") {
+      playSfx("raise");
+    } else if (actionCue === "allin") {
+      playSfx("allin");
+    }
     const contributed = Math.max(0, state.pot - prevPot);
     if (contributed > 0) {
       throw3DBetChips(playerIndex, contributed);
+      playSfx("chip", { amount: contributed });
     }
-    if (didAllIn) {
+    if (didAllIn && player.isHuman) {
       cue3D("allin", { seatIndex: playerIndex });
     }
 
@@ -851,6 +1359,10 @@
 
     setPlayerAction(winner, `Won ${toCurrency(won)}`, "strong");
     setStatus(`${winner.name} wins ${toCurrency(won)} chips.`, "Everyone else folded.");
+    logHistory(`${winner.name} wins uncontested pot ${toCurrency(won)}.`, "showdown");
+    if (winner.isHuman) {
+      playSfx("win");
+    }
     finalizeHand();
     return true;
   }
@@ -864,6 +1376,7 @@
     if (state.stage === "preflop") {
       state.communityCards.push(drawCard(), drawCard(), drawCard());
       setStatus("Dealer throws the flop.", "Three cards hit the felt.");
+      logHistory("Flop incoming.", "street");
       cue3D("boardFocus");
       render();
       await animateCommunityCards(3);
@@ -876,6 +1389,7 @@
 
       state.stage = "flop";
       setStatus("Flop dealt.", "Three community cards are on the felt.");
+      logHistory(`Flop: ${state.communityCards.slice(0, 3).map(cardText).join(" ")}`, "street");
       state.roundTransitioning = false;
       setupNextStreet();
       return;
@@ -884,6 +1398,7 @@
     if (state.stage === "flop") {
       state.communityCards.push(drawCard());
       setStatus("Dealer fires the turn.", "Fourth board card incoming.");
+      logHistory("Turn incoming.", "street");
       cue3D("boardFocus");
       render();
       await animateCommunityCards(1);
@@ -896,6 +1411,7 @@
 
       state.stage = "turn";
       setStatus("Turn card dealt.", "One more card before the river.");
+      logHistory(`Turn: ${state.communityCards[3] ? cardText(state.communityCards[3]) : "-"}`, "street");
       state.roundTransitioning = false;
       setupNextStreet();
       return;
@@ -904,6 +1420,7 @@
     if (state.stage === "turn") {
       state.communityCards.push(drawCard());
       setStatus("Dealer launches the river.", "Final board card incoming.");
+      logHistory("River incoming.", "street");
       cue3D("boardFocus");
       render();
       await animateCommunityCards(1);
@@ -916,6 +1433,7 @@
 
       state.stage = "river";
       setStatus("River card dealt.", "Final betting round.");
+      logHistory(`River: ${state.communityCards[4] ? cardText(state.communityCards[4]) : "-"}`, "street");
       state.roundTransitioning = false;
       setupNextStreet();
       return;
@@ -948,6 +1466,9 @@
       return;
     }
 
+    if (state.stage !== "preflop") {
+      logHistory(`${state.stage.toUpperCase()} action starts.`, "street");
+    }
     beginTurn(opener);
   }
 
@@ -983,6 +1504,50 @@
     runout();
   }
 
+  function buildSidePots() {
+    const layers = state.players
+      .map((player, index) => ({ index, amount: Math.max(0, player.invested || 0) }))
+      .filter((entry) => entry.amount > 0)
+      .sort((a, b) => a.amount - b.amount);
+
+    if (layers.length === 0) return [];
+
+    const pots = [];
+    let previous = 0;
+
+    while (layers.length > 0) {
+      const level = layers[0].amount;
+      const layerSize = level - previous;
+      const contributors = layers.map((entry) => entry.index);
+      const amount = layerSize * contributors.length;
+      if (amount > 0) {
+        pots.push({
+          amount,
+          contributors,
+          eligible: contributors.filter((index) => !state.players[index].folded)
+        });
+      }
+      previous = level;
+      while (layers.length > 0 && layers[0].amount === level) {
+        layers.shift();
+      }
+    }
+
+    return pots;
+  }
+
+  function seatOrderFromButton(indices) {
+    const set = new Set(indices);
+    const ordered = [];
+    for (let i = 1; i <= state.players.length; i += 1) {
+      const index = (state.dealerIndex + i + state.players.length) % state.players.length;
+      if (set.has(index)) {
+        ordered.push(index);
+      }
+    }
+    return ordered;
+  }
+
   function showdown() {
     cue3D("showdown");
     const contenders = playersInHand();
@@ -996,47 +1561,93 @@
     const evaluated = contenders.map((player) => {
       const result = evaluateSeven([...player.hand, ...state.communityCards]);
       player.showdown = result;
-      return { player, result };
+      return { player, result, index: state.players.indexOf(player) };
     });
 
-    let best = evaluated[0];
-    for (let i = 1; i < evaluated.length; i += 1) {
-      if (compareEval(evaluated[i].result, best.result) > 0) {
-        best = evaluated[i];
-      }
+    evaluated.forEach((entry) => {
+      const [a, b] = entry.player.hand;
+      const cards = a && b ? `${cardText(a)} ${cardText(b)}` : "-- --";
+      logHistory(`${entry.player.name} shows ${cards} (${entry.result.name}).`, "showdown");
+    });
+
+    let sidePots = buildSidePots();
+    if (sidePots.length === 0 && state.pot > 0) {
+      sidePots = [
+        {
+          amount: state.pot,
+          contributors: state.players.map((_, index) => index),
+          eligible: evaluated.map((entry) => entry.index)
+        }
+      ];
     }
 
-    const winners = evaluated
-      .filter((entry) => compareEval(entry.result, best.result) === 0)
-      .map((entry) => entry.player);
+    const payouts = new Map();
+    let primaryWinners = [];
+    let primaryName = "";
 
-    const each = Math.floor(state.pot / winners.length);
-    let remainder = state.pot - each * winners.length;
+    sidePots.forEach((pot, potIndex) => {
+      const eligibleEntries = evaluated.filter((entry) => pot.eligible.includes(entry.index));
+      if (eligibleEntries.length === 0 || pot.amount <= 0) return;
 
-    winners.forEach((winner) => {
-      winner.chips += each;
-      if (remainder > 0) {
-        winner.chips += 1;
-        remainder -= 1;
+      let best = eligibleEntries[0];
+      for (let i = 1; i < eligibleEntries.length; i += 1) {
+        if (compareEval(eligibleEntries[i].result, best.result) > 0) {
+          best = eligibleEntries[i];
+        }
       }
-      setPlayerAction(winner, `Won ${toCurrency(each)}`, "strong");
+
+      const winners = eligibleEntries.filter((entry) => compareEval(entry.result, best.result) === 0);
+      const payoutOrder = seatOrderFromButton(winners.map((entry) => entry.index))
+        .map((index) => winners.find((entry) => entry.index === index))
+        .filter(Boolean);
+
+      const each = Math.floor(pot.amount / winners.length);
+      let remainder = pot.amount - each * winners.length;
+      payoutOrder.forEach((entry) => {
+        const bonus = remainder > 0 ? 1 : 0;
+        if (remainder > 0) remainder -= 1;
+        payouts.set(entry.index, (payouts.get(entry.index) || 0) + each + bonus);
+      });
+
+      const label = potIndex === 0 ? "Main pot" : `Side pot ${potIndex}`;
+      const winnerNames = winners.map((entry) => entry.player.name).join(", ");
+      logHistory(`${label} ${toCurrency(pot.amount)} -> ${winnerNames} (${best.result.name}).`, "showdown");
+
+      if (potIndex === 0) {
+        primaryWinners = winners.map((entry) => entry.player);
+        primaryName = best.result.name;
+      }
+    });
+
+    payouts.forEach((amount, index) => {
+      const player = state.players[index];
+      player.chips += amount;
+      setPlayerAction(player, `Won ${toCurrency(amount)}`, "strong");
     });
 
     state.handOver = true;
 
-    if (winners.length === 1) {
+    if (primaryWinners.length === 1) {
       setStatus(
-        `${winners[0].name} wins with ${best.result.name}.`,
+        `${primaryWinners[0].name} wins with ${primaryName}.`,
         `Board: ${state.communityCards.map(cardText).join(" ")}`
       );
-    } else {
+    } else if (primaryWinners.length > 1) {
       setStatus(
-        `Split pot (${winners.length} players) with ${best.result.name}.`,
-        `Winners: ${winners.map((w) => w.name).join(", ")}`
+        `Split pot (${primaryWinners.length} players) with ${primaryName}.`,
+        `Winners: ${primaryWinners.map((w) => w.name).join(", ")}`
       );
+    } else {
+      setStatus("Hand complete.", `Board: ${state.communityCards.map(cardText).join(" ")}`);
     }
 
     state.pot = 0;
+    if (primaryWinners.length > 0) {
+      logHistory(`Hand complete on ${state.stage.toUpperCase()}.`, "showdown");
+    }
+    if (primaryWinners.some((winner) => winner.isHuman)) {
+      playSfx("win");
+    }
     finalizeHand();
     render();
   }
@@ -1046,11 +1657,47 @@
     state.animatingDeal = false;
     state.roundTransitioning = false;
     state.autoRunoutInProgress = false;
+    state.replayInProgress = false;
+    state.replayEntryId = null;
     state.communityVisible = state.communityCards.length;
     state.dealtHoleCounts = state.players.map((player) => player.hand.length);
+    queueTournamentAdvanceIfCleared();
+    state.lastHandLog = state.currentHandLog.slice();
     setDealerThrowing(false);
     clearDealLayer();
     el.nextHandBtn.disabled = false;
+    if (el.replayBtn) {
+      el.replayBtn.disabled = state.lastHandLog.length === 0;
+    }
+  }
+
+  async function replayLastHand() {
+    if (state.replayInProgress || state.lastHandLog.length === 0) return;
+    if (!state.handOver) {
+      setStatus("Replay is available after the hand ends.", "Finish this hand first.");
+      return;
+    }
+
+    state.replayInProgress = true;
+    state.replayEntryId = null;
+    render();
+
+    const entries = state.lastHandLog.slice(-Math.min(28, state.lastHandLog.length));
+    setStatus("Replay started.", "Hand timeline is playing.");
+
+    try {
+      for (const entry of entries) {
+        state.replayEntryId = entry.id;
+        setStatus("Replay", entry.text);
+        render();
+        await sleep(620);
+      }
+      setStatus("Replay complete.", "Use Next Hand to continue.");
+    } finally {
+      state.replayInProgress = false;
+      state.replayEntryId = null;
+      render();
+    }
   }
 
   function evaluateSeven(cards) {
@@ -1307,7 +1954,16 @@
   }
 
   function render() {
+    setSoundToggleUi();
+    if (el.stageInfo) {
+      const stageProfile = currentStageProfile();
+      const pending = state.pendingStageAdvance ? " · CLEAR" : "";
+      el.stageInfo.textContent = `Stage ${state.tournamentStage + 1} · ${stageProfile.name}${pending}`;
+    }
     el.blindInfo.textContent = `Blinds ${state.smallBlind} / ${state.bigBlind}`;
+    if (el.blindLevel) {
+      el.blindLevel.textContent = `Level ${state.blindLevel + 1} · Hand ${state.handId}`;
+    }
     if (state.smallBlindIndex >= 0 && state.bigBlindIndex >= 0) {
       const sb = state.players[state.smallBlindIndex];
       const bb = state.players[state.bigBlindIndex];
@@ -1323,10 +1979,15 @@
     renderBoardMini();
     renderSeats();
     renderHandReadout();
+    renderHandHistory();
+    renderShowdownPanel();
     renderControls();
     sync3DTableState();
 
-    el.nextHandBtn.disabled = !state.handOver;
+    el.nextHandBtn.disabled = !state.handOver || state.replayInProgress;
+    if (el.replayBtn) {
+      el.replayBtn.disabled = !state.handOver || state.replayInProgress || state.lastHandLog.length === 0;
+    }
   }
 
   function renderHandReadout() {
@@ -1337,7 +1998,7 @@
     const foldedCount = state.players.filter((player) => player.folded).length;
     const inPotCount = state.players.filter((player) => !player.folded && player.currentBet > 0).length;
     const allInCount = state.players.filter((player) => !player.folded && player.allIn && !state.handOver).length;
-    const header = `<div class="hand-readout-head"><span>IN HAND ${inHandCount} / ${state.players.length}</span><span>LIVE ${activeCount} · POT ${inPotCount} · FOLD ${foldedCount}${allInCount > 0 ? ` · ALL-IN ${allInCount}` : ""}</span></div>`;
+    const header = `<div class="hand-readout-head"><span>IN HAND ${inHandCount} / ${state.players.length}</span><span>LIVE ${activeCount} · POT ${inPotCount} · FOLD ${foldedCount}${allInCount > 0 ? ` · ALL-IN ${allInCount}` : ""} · TOT=INVESTED</span></div>`;
 
     const rows = state.players
       .map((player, index) => {
@@ -1379,11 +2040,75 @@
 
         const name = player.isHuman ? `${player.name} (YOU)` : player.name;
         const betText = player.currentBet > 0 ? toCurrency(player.currentBet) : "-";
-        return `<div class="${rowClass}"><span class="name">${name}</span><span class="chips">${toCurrency(player.chips)}</span><span class="bet">${betText}</span><span class="state"><span class="state-pill ${stateClass}">${stateLabel}</span></span></div>`;
+        return `<div class="${rowClass}"><span class="name">${name}</span><span class="chips">${toCurrency(player.chips)}</span><span class="bet">${betText}</span><span class="total">${toCurrency(player.invested)}</span><span class="state"><span class="state-pill ${stateClass}">${stateLabel}</span></span></div>`;
       })
       .join("");
 
     el.handReadout.innerHTML = `${header}${rows}`;
+  }
+
+  function renderHandHistory() {
+    if (!el.handHistory) return;
+    const entries = state.currentHandLog.slice(-HISTORY_PREVIEW);
+    const visible = entries.length > 0 ? entries : state.lastHandLog.slice(-HISTORY_PREVIEW);
+    const header = `<div class="hand-history-head"><span>HAND LOG</span><span>${visible.length}</span></div>`;
+
+    if (visible.length === 0) {
+      el.handHistory.innerHTML = `${header}<div class="history-row">No hand history yet. Start a hand.</div>`;
+      return;
+    }
+
+    const rows = visible
+      .map((entry) => {
+        const type = entry.type || "info";
+        const replayClass = state.replayEntryId === entry.id ? " replay-active" : "";
+        return `<div class="history-row ${type}${replayClass}">${entry.text}</div>`;
+      })
+      .join("");
+    el.handHistory.innerHTML = `${header}<div class="hand-history-list">${rows}</div>`;
+  }
+
+  function renderShowdownPanel() {
+    if (!el.showdownPanel) return;
+    if (!state.handOver) {
+      el.showdownPanel.classList.remove("show");
+      el.showdownPanel.innerHTML = "";
+      return;
+    }
+
+    const order = [0, 1, 3, 2].filter((index) => index < state.players.length);
+    const rows = order
+      .map((index) => {
+        const player = state.players[index];
+        if (!player) return "";
+
+        const winner = /\bWon\b/i.test(player.lastAction);
+        const rowClass = winner ? "showdown-row winner" : "showdown-row";
+        const canReveal = !player.folded || !!player.showdown;
+        const cardsHtml = canReveal
+          ? player.hand
+              .slice(0, 2)
+              .map((card) => {
+                const red = card.suit === "H" || card.suit === "D" ? " red" : "";
+                return `<span class="showdown-card-tile${red}">${cardText(card)}</span>`;
+              })
+              .join("")
+          : `<span class="showdown-mucked">MUCKED</span>`;
+        const handName = canReveal && player.showdown ? player.showdown.name : player.folded ? "Folded" : "No Show";
+        const playerName = player.isHuman ? `${player.name} (YOU)` : player.name;
+        return `<div class="${rowClass}"><div class="showdown-player"><span>${playerName}</span><span class="showdown-hand-name">${handName}</span></div><div class="showdown-cards">${cardsHtml}</div></div>`;
+      })
+      .filter(Boolean)
+      .join("");
+
+    if (!rows) {
+      el.showdownPanel.classList.remove("show");
+      el.showdownPanel.innerHTML = "";
+      return;
+    }
+
+    el.showdownPanel.classList.add("show");
+    el.showdownPanel.innerHTML = `<div class="showdown-head"><span>Showdown Cards</span><span>Hand #${state.handId}</span></div><div class="showdown-list">${rows}</div>`;
   }
 
   function renderCommunityCards() {
@@ -1478,7 +2203,7 @@
     const human = humanIndex >= 0 ? state.players[humanIndex] : null;
     if (!human) return;
 
-    const actionBlocked = state.animatingDeal || state.roundTransitioning;
+    const actionBlocked = state.animatingDeal || state.roundTransitioning || state.replayInProgress;
     const yourTurn = !state.handOver && state.waitingForHuman && !actionBlocked;
     const dealt = state.dealtHoleCounts[humanIndex] || 0;
     const canPeek = !state.handOver && !human.folded && human.hand.length === 2 && dealt >= 2 && !actionBlocked;
@@ -1555,6 +2280,36 @@
       startHand();
     });
 
+    if (el.replayBtn) {
+      el.replayBtn.addEventListener("click", () => {
+        replayLastHand();
+      });
+    }
+
+    if (el.skinSelect) {
+      el.skinSelect.addEventListener("change", (event) => {
+        applySkin(event.target.value);
+      });
+    }
+
+    if (el.tutorialDismissBtn) {
+      el.tutorialDismissBtn.addEventListener("click", () => {
+        setTutorialVisibility(true);
+      });
+    }
+
+    if (el.soundToggle) {
+      el.soundToggle.addEventListener("click", () => {
+        setAudioEnabled(!audio.enabled);
+      });
+    }
+
+    const primeAudio = () => {
+      unlockAudio();
+    };
+    window.addEventListener("pointerdown", primeAudio, { once: true, passive: true });
+    window.addEventListener("keydown", primeAudio, { once: true });
+
     el.foldBtn.addEventListener("click", () => humanAction("fold"));
     el.checkCallBtn.addEventListener("click", () => humanAction("checkcall"));
     el.raiseBtn.addEventListener("click", () => {
@@ -1566,7 +2321,10 @@
     });
 
     const startPeek = (event) => {
-      event.preventDefault();
+      if (event && typeof event.preventDefault === "function") {
+        event.preventDefault();
+      }
+      if (el.peekBtn.disabled) return;
       setPeek(true);
       el.peekBtn.classList.add("active");
     };
@@ -1583,6 +2341,50 @@
     el.peekBtn.addEventListener("touchend", endPeek);
     el.peekBtn.addEventListener("touchcancel", endPeek);
     window.addEventListener("mouseup", endPeek);
+    window.addEventListener("blur", endPeek);
+
+    window.addEventListener("keydown", (event) => {
+      if (event.defaultPrevented) return;
+      const target = event.target;
+      const tag = target && target.tagName ? target.tagName.toLowerCase() : "";
+      if (tag === "input" || tag === "select" || tag === "textarea" || (target && target.isContentEditable)) return;
+
+      const key = event.key.toLowerCase();
+      if (key === "f" && !el.foldBtn.disabled) {
+        event.preventDefault();
+        el.foldBtn.click();
+        return;
+      }
+      if (key === "c" && !el.checkCallBtn.disabled) {
+        event.preventDefault();
+        el.checkCallBtn.click();
+        return;
+      }
+      if (key === "r" && !el.raiseBtn.disabled) {
+        event.preventDefault();
+        el.raiseBtn.click();
+        return;
+      }
+      if (key === "n" && !el.nextHandBtn.disabled) {
+        event.preventDefault();
+        el.nextHandBtn.click();
+        return;
+      }
+      if (key === "h" && el.replayBtn && !el.replayBtn.disabled) {
+        event.preventDefault();
+        el.replayBtn.click();
+        return;
+      }
+      if (key === "p" && !event.repeat) {
+        startPeek(event);
+      }
+    });
+
+    window.addEventListener("keyup", (event) => {
+      if (event.key.toLowerCase() === "p") {
+        endPeek();
+      }
+    });
   }
 
   function bootstrap() {
@@ -1602,11 +2404,12 @@
         window.dispatchEvent(new Event("resize"));
       });
     }
+    loadPreferences();
     initSeats();
     bindEvents();
 
     if (mode3D) {
-      setStatus("Table ready.", "3D scene loaded. Press Next Hand to start.");
+      setStatus("Table ready.", "3D scene loaded. Press Next Hand or N.");
     } else {
       setStatus("Table ready.", "WebGL unavailable. Running enhanced fallback view.");
     }

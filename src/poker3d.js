@@ -6,6 +6,7 @@
     resetForNewHand: () => {},
     setTableState: () => {},
     setPlayerState: () => {},
+    setSkin: () => {},
     throwCard: () => Promise.resolve(),
     throwChips: () => Promise.resolve(),
     cue: () => {},
@@ -45,6 +46,63 @@
     skin: 0xd1a17f
   };
 
+  const SKINS = {
+    classic: {
+      sceneBg: 0x091019,
+      fog: 0x091019,
+      tableFelt: 0x1d7a62,
+      tableFeltDark: 0x0e4f3e,
+      wood: 0x2f2118,
+      woodDark: 0x1f150f,
+      dealerButton: 0xead18f,
+      spot: 0xffedc1,
+      rimLeft: 0x4a7fbc,
+      rimRight: 0xe5b66f,
+      roomFloor: 0x171d23,
+      roomWall: 0x11161b,
+      roomWood: 0x3d2b20,
+      roomBrass: 0xb89253,
+      neon: 0x123e63,
+      neonEmissive: 0x1f5f8e
+    },
+    neon: {
+      sceneBg: 0x041222,
+      fog: 0x041222,
+      tableFelt: 0x167489,
+      tableFeltDark: 0x0f4e69,
+      wood: 0x1f2d42,
+      woodDark: 0x162133,
+      dealerButton: 0x84dfff,
+      spot: 0xd4f5ff,
+      rimLeft: 0x35a2ff,
+      rimRight: 0x4cf6c8,
+      roomFloor: 0x0f1825,
+      roomWall: 0x0a1320,
+      roomWood: 0x223550,
+      roomBrass: 0x4cb4dc,
+      neon: 0x184d8a,
+      neonEmissive: 0x32b3f0
+    },
+    velvet: {
+      sceneBg: 0x120b11,
+      fog: 0x120b11,
+      tableFelt: 0x6a1a3e,
+      tableFeltDark: 0x4b102b,
+      wood: 0x3a1f18,
+      woodDark: 0x2a160f,
+      dealerButton: 0xe6c186,
+      spot: 0xffe4bf,
+      rimLeft: 0x9560a8,
+      rimRight: 0xf0b777,
+      roomFloor: 0x1b1118,
+      roomWall: 0x1a1016,
+      roomWood: 0x512f25,
+      roomBrass: 0xc28f59,
+      neon: 0x512846,
+      neonEmissive: 0xb74f8a
+    }
+  };
+
   const ctx = {
     initialized: false,
     container: null,
@@ -61,6 +119,8 @@
     potChipGroup: null,
     potChipCount: 0,
     throwInFlight: 0,
+    stageCueTimer: null,
+    atmosphere: null,
     seatBodyPositions: [
       new THREE.Vector3(0, 1.45, -4.25),
       new THREE.Vector3(5.1, 1.35, -0.8),
@@ -88,9 +148,13 @@
     modelTemplate: null,
     modelLoading: false,
     textureCache: new Map(),
+    skinName: "classic",
+    lights: null,
+    roomMaterials: null,
+    tableMaterials: null,
     defaultCamera: {
-      pos: new THREE.Vector3(0.2, 4.95, 8.95),
-      look: new THREE.Vector3(0, 1.24, 0.85)
+      pos: new THREE.Vector3(0.16, 5.62, 8.72),
+      look: new THREE.Vector3(0, 1.42, 0.8)
     }
   };
 
@@ -139,11 +203,13 @@
     ctx.cameraTargetLook.copy(ctx.defaultCamera.look);
 
     buildLights();
+    buildAtmosphere();
     buildRoom();
     buildTable();
     buildDealer();
     buildPlayers();
     buildCardSets();
+    setSkin(ctx.skinName);
     if (USE_GLTF_AVATARS) {
       loadHumanModel();
     }
@@ -158,10 +224,10 @@
   }
 
   function buildLights() {
-    const hemi = new THREE.HemisphereLight(0x8eb5e5, 0x1d1612, 0.62);
+    const hemi = new THREE.HemisphereLight(0x8eb5e5, 0x1d1612, 0.7);
     ctx.scene.add(hemi);
 
-    const topSpot = new THREE.SpotLight(0xffedc1, 1.22, 50, 0.8, 0.7, 1.1);
+    const topSpot = new THREE.SpotLight(0xffedc1, 1.34, 50, 0.76, 0.68, 1.1);
     topSpot.position.set(0, 12, 1);
     topSpot.castShadow = true;
     topSpot.shadow.mapSize.width = 1024;
@@ -172,27 +238,75 @@
     ctx.scene.add(topSpot);
     ctx.scene.add(topSpot.target);
 
-    const rimLeft = new THREE.PointLight(0x4a7fbc, 0.38, 20);
+    const rimLeft = new THREE.PointLight(0x4a7fbc, 0.46, 22);
     rimLeft.position.set(-8, 4, 6);
     ctx.scene.add(rimLeft);
 
-    const rimRight = new THREE.PointLight(0xe5b66f, 0.45, 20);
+    const rimRight = new THREE.PointLight(0xe5b66f, 0.54, 22);
     rimRight.position.set(8, 5, 6);
     ctx.scene.add(rimRight);
+
+    const barFill = new THREE.PointLight(0xffbf7a, 0.4, 16);
+    barFill.position.set(0, 3.4, -9.2);
+    ctx.scene.add(barFill);
+
+    ctx.lights = { hemi, topSpot, rimLeft, rimRight, barFill };
+  }
+
+  function buildAtmosphere() {
+    const count = 300;
+    const positions = new Float32Array(count * 3);
+    const basePositions = new Float32Array(count * 3);
+    const phases = new Float32Array(count);
+
+    for (let i = 0; i < count; i += 1) {
+      const i3 = i * 3;
+      const x = (Math.random() - 0.5) * 18;
+      const y = 1.4 + Math.random() * 6.4;
+      const z = (Math.random() - 0.5) * 18;
+      positions[i3] = x;
+      positions[i3 + 1] = y;
+      positions[i3 + 2] = z;
+      basePositions[i3] = x;
+      basePositions[i3 + 1] = y;
+      basePositions[i3 + 2] = z;
+      phases[i] = Math.random() * Math.PI * 2;
+    }
+
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+    const material = new THREE.PointsMaterial({
+      color: 0xe8d1aa,
+      size: 0.05,
+      transparent: true,
+      opacity: 0.16,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending
+    });
+    const points = new THREE.Points(geometry, material);
+    ctx.scene.add(points);
+
+    ctx.atmosphere = {
+      points,
+      basePositions,
+      phases
+    };
   }
 
   function buildRoom() {
+    const floorMat = new THREE.MeshStandardMaterial({ color: COLOR.floor, roughness: 0.96, metalness: 0.04 });
     const floor = new THREE.Mesh(
       new THREE.CircleGeometry(18, 56),
-      new THREE.MeshStandardMaterial({ color: COLOR.floor, roughness: 0.96, metalness: 0.04 })
+      floorMat
     );
     floor.rotation.x = -Math.PI / 2;
     floor.receiveShadow = true;
     ctx.scene.add(floor);
 
+    const wallMat = new THREE.MeshStandardMaterial({ color: COLOR.wall, roughness: 0.95, metalness: 0.03 });
     const backWall = new THREE.Mesh(
       new THREE.PlaneGeometry(30, 12),
-      new THREE.MeshStandardMaterial({ color: COLOR.wall, roughness: 0.95, metalness: 0.03 })
+      wallMat
     );
     backWall.position.set(0, 5.4, -11);
     ctx.scene.add(backWall);
@@ -246,16 +360,14 @@
       }
     }
 
-    const neonPanel = new THREE.Mesh(
-      new THREE.PlaneGeometry(4.4, 1.12),
-      new THREE.MeshStandardMaterial({
-        color: 0x123e63,
-        emissive: 0x1f5f8e,
-        emissiveIntensity: 0.65,
-        roughness: 0.58,
-        metalness: 0.08
-      })
-    );
+    const neonMat = new THREE.MeshStandardMaterial({
+      color: 0x123e63,
+      emissive: 0x1f5f8e,
+      emissiveIntensity: 0.65,
+      roughness: 0.58,
+      metalness: 0.08
+    });
+    const neonPanel = new THREE.Mesh(new THREE.PlaneGeometry(4.4, 1.12), neonMat);
     neonPanel.position.set(0, 6.95, -10.92);
     ctx.scene.add(neonPanel);
 
@@ -308,55 +420,143 @@
     const whiskeyGlass = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.18, 0.28, 18), glassMat);
     whiskeyGlass.position.set(6.1, 0.9, 2.1);
     ctx.scene.add(whiskeyGlass);
+
+    const boothMat = new THREE.MeshStandardMaterial({ color: 0x2a1f22, roughness: 0.84, metalness: 0.08 });
+    for (const side of [-1, 1]) {
+      const boothBase = new THREE.Mesh(new THREE.BoxGeometry(2.8, 0.65, 1.45), boothMat);
+      boothBase.position.set(side * 8.15, 0.36, -3.25);
+      boothBase.castShadow = true;
+      boothBase.receiveShadow = true;
+      ctx.scene.add(boothBase);
+
+      const boothBack = new THREE.Mesh(new THREE.BoxGeometry(2.8, 1.2, 0.36), boothMat);
+      boothBack.position.set(side * 8.15, 0.98, -3.9);
+      boothBack.castShadow = true;
+      boothBack.receiveShadow = true;
+      ctx.scene.add(boothBack);
+
+      const boothTable = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.58, 0.5, 22), woodMat);
+      boothTable.position.set(side * 6.75, 0.52, -3.22);
+      boothTable.castShadow = true;
+      boothTable.receiveShadow = true;
+      ctx.scene.add(boothTable);
+
+      const boothLamp = new THREE.Mesh(
+        new THREE.SphereGeometry(0.12, 14, 14),
+        new THREE.MeshStandardMaterial({ color: 0xffd9a6, emissive: 0xffc16b, emissiveIntensity: 0.95 })
+      );
+      boothLamp.position.set(side * 6.75, 1.05, -3.25);
+      ctx.scene.add(boothLamp);
+    }
+
+    for (let i = 0; i < 4; i += 1) {
+      const silhouette = new THREE.Group();
+      const body = new THREE.Mesh(
+        new THREE.CapsuleGeometry(0.23, 0.48, 5, 10),
+        new THREE.MeshStandardMaterial({ color: 0x1f2630, roughness: 0.85, metalness: 0.05 })
+      );
+      body.position.y = 0.34;
+      body.castShadow = true;
+      silhouette.add(body);
+
+      const head = new THREE.Mesh(
+        new THREE.SphereGeometry(0.14, 14, 14),
+        new THREE.MeshStandardMaterial({ color: 0x2a3340, roughness: 0.8, metalness: 0.04 })
+      );
+      head.position.y = 0.86;
+      head.castShadow = true;
+      silhouette.add(head);
+
+      silhouette.position.set(-3.2 + i * 2.2, 1.52, -8.98 + (i % 2) * 0.25);
+      silhouette.rotation.y = Math.PI * (0.2 - i * 0.08);
+      ctx.scene.add(silhouette);
+    }
+
+    for (let i = 0; i < 3; i += 1) {
+      const frame = new THREE.Mesh(
+        new THREE.BoxGeometry(1.9, 1.2, 0.08),
+        new THREE.MeshStandardMaterial({ color: 0x7a5d3a, roughness: 0.5, metalness: 0.28 })
+      );
+      frame.position.set(-4.3 + i * 4.3, 4.9, -10.92);
+      ctx.scene.add(frame);
+
+      const artwork = new THREE.Mesh(
+        new THREE.PlaneGeometry(1.55, 0.88),
+        new THREE.MeshStandardMaterial({
+          color: i % 2 === 0 ? 0x30485f : 0x5e3a2f,
+          emissive: i % 2 === 0 ? 0x172635 : 0x2a1b14,
+          emissiveIntensity: 0.38,
+          roughness: 0.7,
+          metalness: 0.08
+        })
+      );
+      artwork.position.set(-4.3 + i * 4.3, 4.9, -10.865);
+      ctx.scene.add(artwork);
+    }
+
+    ctx.roomMaterials = {
+      floor: floorMat,
+      wall: wallMat,
+      wood: woodMat,
+      brass: brassMat,
+      glass: glassMat,
+      neon: neonMat
+    };
   }
 
   function buildTable() {
+    const baseMat = new THREE.MeshStandardMaterial({ color: COLOR.wood, roughness: 0.82, metalness: 0.1 });
     const base = new THREE.Mesh(
       new THREE.CylinderGeometry(5.1, 5.45, 0.92, 80),
-      new THREE.MeshStandardMaterial({ color: COLOR.wood, roughness: 0.82, metalness: 0.1 })
+      baseMat
     );
     base.position.y = 0.72;
     base.castShadow = true;
     base.receiveShadow = true;
     ctx.scene.add(base);
 
+    const feltMat = new THREE.MeshStandardMaterial({ color: COLOR.tableFelt, roughness: 0.93, metalness: 0.02 });
     const felt = new THREE.Mesh(
       new THREE.CylinderGeometry(4.44, 4.5, 0.14, 80),
-      new THREE.MeshStandardMaterial({ color: COLOR.tableFelt, roughness: 0.93, metalness: 0.02 })
+      feltMat
     );
     felt.position.y = 1.2;
     felt.castShadow = true;
     felt.receiveShadow = true;
     ctx.scene.add(felt);
 
+    const innerFeltMat = new THREE.MeshStandardMaterial({ color: COLOR.tableFeltDark, roughness: 0.92, metalness: 0.02 });
     const innerFelt = new THREE.Mesh(
       new THREE.CylinderGeometry(3.7, 3.76, 0.025, 80),
-      new THREE.MeshStandardMaterial({ color: COLOR.tableFeltDark, roughness: 0.92, metalness: 0.02 })
+      innerFeltMat
     );
     innerFelt.position.y = 1.28;
     innerFelt.receiveShadow = true;
     ctx.scene.add(innerFelt);
 
+    const rimMat = new THREE.MeshStandardMaterial({ color: COLOR.woodDark, roughness: 0.7, metalness: 0.16 });
     const rim = new THREE.Mesh(
       new THREE.TorusGeometry(4.58, 0.26, 28, 90),
-      new THREE.MeshStandardMaterial({ color: COLOR.woodDark, roughness: 0.7, metalness: 0.16 })
+      rimMat
     );
     rim.rotation.x = Math.PI / 2;
     rim.position.y = 1.28;
     rim.castShadow = true;
     ctx.scene.add(rim);
 
+    const rimGoldMat = new THREE.MeshStandardMaterial({ color: 0xd9bc7f, roughness: 0.25, metalness: 0.45 });
     const rimGold = new THREE.Mesh(
       new THREE.TorusGeometry(4.58, 0.045, 14, 90),
-      new THREE.MeshStandardMaterial({ color: 0xd9bc7f, roughness: 0.25, metalness: 0.45 })
+      rimGoldMat
     );
     rimGold.rotation.x = Math.PI / 2;
     rimGold.position.y = 1.355;
     ctx.scene.add(rimGold);
 
+    const dealerButtonMat = new THREE.MeshStandardMaterial({ color: 0xead18f, roughness: 0.34, metalness: 0.52 });
     ctx.dealerButton = new THREE.Mesh(
       new THREE.CylinderGeometry(0.18, 0.18, 0.045, 28),
-      new THREE.MeshStandardMaterial({ color: 0xead18f, roughness: 0.34, metalness: 0.52 })
+      dealerButtonMat
     );
     ctx.dealerButton.rotation.x = 0;
     ctx.dealerButton.position.set(0.78, 1.352, 2.4);
@@ -366,7 +566,60 @@
     ctx.scene.add(ctx.potChipGroup);
     ctx.potChipCount = 0;
 
+    ctx.tableMaterials = {
+      base: baseMat,
+      felt: feltMat,
+      innerFelt: innerFeltMat,
+      rim: rimMat,
+      rimGold: rimGoldMat,
+      dealerButton: dealerButtonMat
+    };
+
     buildChipStacks();
+  }
+
+  function setSkin(name = "classic") {
+    const resolvedName = Object.prototype.hasOwnProperty.call(SKINS, name) ? name : "classic";
+    const skin = SKINS[resolvedName];
+    ctx.skinName = resolvedName;
+
+    if (ctx.scene) {
+      ctx.scene.background = new THREE.Color(skin.sceneBg);
+      if (ctx.scene.fog) {
+        ctx.scene.fog.color.setHex(skin.fog);
+      }
+    }
+
+    if (ctx.tableMaterials) {
+      ctx.tableMaterials.base.color.setHex(skin.wood);
+      ctx.tableMaterials.felt.color.setHex(skin.tableFelt);
+      ctx.tableMaterials.innerFelt.color.setHex(skin.tableFeltDark);
+      ctx.tableMaterials.rim.color.setHex(skin.woodDark);
+      ctx.tableMaterials.rimGold.color.setHex(skin.roomBrass);
+      ctx.tableMaterials.dealerButton.color.setHex(skin.dealerButton);
+    }
+
+    if (ctx.roomMaterials) {
+      ctx.roomMaterials.floor.color.setHex(skin.roomFloor);
+      ctx.roomMaterials.wall.color.setHex(skin.roomWall);
+      ctx.roomMaterials.wood.color.setHex(skin.roomWood);
+      ctx.roomMaterials.brass.color.setHex(skin.roomBrass);
+      ctx.roomMaterials.neon.color.setHex(skin.neon);
+      ctx.roomMaterials.neon.emissive.setHex(skin.neonEmissive);
+    }
+
+    if (ctx.lights) {
+      ctx.lights.topSpot.color.setHex(skin.spot);
+      ctx.lights.rimLeft.color.setHex(skin.rimLeft);
+      ctx.lights.rimRight.color.setHex(skin.rimRight);
+      if (ctx.lights.barFill) {
+        ctx.lights.barFill.color.setHex(skin.roomBrass);
+      }
+    }
+
+    if (ctx.atmosphere && ctx.atmosphere.points && ctx.atmosphere.points.material) {
+      ctx.atmosphere.points.material.color.setHex(skin.spot);
+    }
   }
 
   function addChipStack(x, z, count, color = 0xb63a3a, stripe = 0xe7d8c2) {
@@ -787,11 +1040,11 @@
 
   function getCommunityPosition(index) {
     const x = -1.26 + index * 0.63;
-    return new THREE.Vector3(x, 1.332, 0.74);
+    return new THREE.Vector3(x, 1.37, 0.84);
   }
 
   function getCommunityRotationX() {
-    return -1.36;
+    return -1.22;
   }
 
   function getSeatChipOrigin(seatIndex) {
@@ -862,7 +1115,7 @@
       const card = createCardMesh(false);
       card.position.copy(getCommunityPosition(i));
       card.rotation.x = getCommunityRotationX();
-      card.scale.setScalar(1.12);
+      card.scale.setScalar(1.2);
       card.visible = false;
       ctx.scene.add(card);
       ctx.communityCards.push(card);
@@ -1056,6 +1309,10 @@
   }
 
   function resetForNewHand() {
+    if (ctx.stageCueTimer) {
+      window.clearTimeout(ctx.stageCueTimer);
+      ctx.stageCueTimer = null;
+    }
     ctx.players.forEach((entry) => {
       entry.targetY = entry.baseY;
       entry.currentY = entry.baseY;
@@ -1253,7 +1510,7 @@
         ctx.peekSavedLook.copy(ctx.cameraTargetLook);
       }
       ctx.peekActive = true;
-      setCameraTarget(new THREE.Vector3(0.18, 5.28, 9.22), new THREE.Vector3(0, 1.72, 4.64));
+      setCameraTarget(new THREE.Vector3(0.16, 5.95, 8.62), new THREE.Vector3(0, 2.02, 4.66));
       return;
     }
 
@@ -1266,6 +1523,32 @@
     }
 
     ctx.peekActive = false;
+    if (ctx.stageCueTimer) {
+      window.clearTimeout(ctx.stageCueTimer);
+      ctx.stageCueTimer = null;
+    }
+
+    if (type === "stageStart") {
+      setCameraTarget(new THREE.Vector3(0.22, 6.48, 9.98), new THREE.Vector3(0, 1.36, 0.52));
+      ctx.cameraShakeTime = 0.26;
+      ctx.cameraShakeStrength = 0.06;
+      ctx.stageCueTimer = window.setTimeout(() => {
+        setCameraTarget(ctx.defaultCamera.pos, ctx.defaultCamera.look);
+        ctx.stageCueTimer = null;
+      }, 1100);
+      return;
+    }
+
+    if (type === "stageClear") {
+      setCameraTarget(new THREE.Vector3(0.14, 6.18, 7.74), new THREE.Vector3(0, 1.4, 0.78));
+      ctx.cameraShakeTime = 0.22;
+      ctx.cameraShakeStrength = 0.08;
+      ctx.stageCueTimer = window.setTimeout(() => {
+        setCameraTarget(ctx.defaultCamera.pos, ctx.defaultCamera.look);
+        ctx.stageCueTimer = null;
+      }, 980);
+      return;
+    }
 
     if (type === "handStart") {
       setCameraTarget(ctx.defaultCamera.pos, ctx.defaultCamera.look);
@@ -1273,22 +1556,28 @@
     }
 
     if (type === "boardFocus") {
-      setCameraTarget(new THREE.Vector3(0.18, 5.15, 8.25), new THREE.Vector3(0, 1.3, 0.72));
+      setCameraTarget(new THREE.Vector3(0.1, 6.26, 7.22), new THREE.Vector3(0, 1.38, 0.86));
       return;
     }
 
     if (type === "showdown") {
-      setCameraTarget(new THREE.Vector3(0.15, 5.05, 8.85), new THREE.Vector3(0, 1.22, 0.3));
+      setCameraTarget(new THREE.Vector3(0.15, 5.58, 8.32), new THREE.Vector3(0, 1.34, 0.42));
       return;
     }
 
     if (type === "turn") {
+      if (seatIndex !== 2) {
+        return;
+      }
       const cueData = getSeatCameraCue(seatIndex, false);
       setCameraTarget(cueData.pos, cueData.look);
       return;
     }
 
     if (type === "allin") {
+      if (seatIndex !== 2) {
+        return;
+      }
       const cueData = getSeatCameraCue(seatIndex, true);
       setCameraTarget(cueData.pos, cueData.look);
       ctx.cameraShakeTime = 0.42;
@@ -1299,28 +1588,28 @@
   function getSeatCameraCue(seatIndex, close = false) {
     if (seatIndex === 0) {
       return {
-        pos: close ? new THREE.Vector3(0, 4.2, -6.25) : new THREE.Vector3(0, 4.7, -7.25),
+        pos: close ? new THREE.Vector3(0, 4.6, -6.0) : new THREE.Vector3(0, 5.0, -7.05),
         look: new THREE.Vector3(0, 1.24, -2.45)
       };
     }
 
     if (seatIndex === 1) {
       return {
-        pos: close ? new THREE.Vector3(6.2, 4.1, 1.1) : new THREE.Vector3(7.0, 4.6, 1.55),
+        pos: close ? new THREE.Vector3(6.1, 4.45, 1.08) : new THREE.Vector3(6.9, 4.9, 1.5),
         look: new THREE.Vector3(3.35, 1.24, -0.15)
       };
     }
 
     if (seatIndex === 3) {
       return {
-        pos: close ? new THREE.Vector3(-6.2, 4.1, 1.1) : new THREE.Vector3(-7.0, 4.6, 1.55),
+        pos: close ? new THREE.Vector3(-6.1, 4.45, 1.08) : new THREE.Vector3(-6.9, 4.9, 1.5),
         look: new THREE.Vector3(-3.35, 1.24, -0.15)
       };
     }
 
     return {
-      pos: close ? new THREE.Vector3(0.3, 4.25, 8.85) : new THREE.Vector3(0.5, 4.8, 9.9),
-      look: new THREE.Vector3(0, 1.24, 3.32)
+      pos: close ? new THREE.Vector3(0.22, 4.72, 8.42) : new THREE.Vector3(0.45, 5.12, 9.46),
+      look: new THREE.Vector3(0, 1.38, 3.36)
     };
   }
 
@@ -1336,6 +1625,26 @@
     ctx.time += dt;
 
     ctx.mixers.forEach((mixer) => mixer.update(dt));
+
+    if (ctx.atmosphere && ctx.atmosphere.points) {
+      const { points, basePositions, phases } = ctx.atmosphere;
+      const attr = points.geometry.getAttribute("position");
+      const pos = attr.array;
+      for (let i = 0; i < phases.length; i += 1) {
+        const i3 = i * 3;
+        const phase = phases[i];
+        pos[i3] = basePositions[i3] + Math.sin(ctx.time * 0.22 + phase) * 0.03;
+        pos[i3 + 1] = basePositions[i3 + 1] + Math.sin(ctx.time * 0.31 + phase * 1.3) * 0.05;
+        pos[i3 + 2] = basePositions[i3 + 2] + Math.cos(ctx.time * 0.18 + phase * 1.7) * 0.03;
+      }
+      attr.needsUpdate = true;
+      points.rotation.y += dt * 0.012;
+    }
+
+    if (ctx.lights) {
+      ctx.lights.topSpot.intensity = 1.3 + Math.sin(ctx.time * 0.55) * 0.05;
+      ctx.lights.barFill.intensity = 0.36 + Math.sin(ctx.time * 0.8 + 1.1) * 0.05;
+    }
 
     const move = 1 - Math.exp(-dt * 3.6);
     const lookMove = 1 - Math.exp(-dt * 4.2);
@@ -1450,6 +1759,7 @@
     resetForNewHand,
     setTableState,
     setPlayerState,
+    setSkin,
     throwCard,
     throwChips,
     cue,
