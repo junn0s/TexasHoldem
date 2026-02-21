@@ -3,6 +3,7 @@
   const SMALL_BLIND = 10;
   const BIG_BLIND = 20;
   const TURN_TIME_MS = 30000;
+  const AUTO_NEXT_HAND_DELAY_MS = 2600;
   const NPC_MIN_THINK_MS = 2000;
   const NPC_MAX_THINK_MS = 11000;
   const HANDS_PER_LEVEL = 3;
@@ -81,7 +82,8 @@
     historySeq: 0,
     skin: "classic",
     tutorialHidden: false,
-    stageBannerTimer: null
+    stageBannerTimer: null,
+    autoNextHandTimeoutId: null
   };
 
   const el = {
@@ -111,6 +113,7 @@
     replayBtn: document.getElementById("replayBtn"),
     tutorialPanel: document.getElementById("tutorialPanel"),
     tutorialDismissBtn: document.getElementById("tutorialDismissBtn"),
+    tutorialToggleBtn: document.getElementById("tutorialToggleBtn"),
     skinSelect: document.getElementById("skinSelect"),
     soundToggle: document.getElementById("soundToggle"),
     foldBtn: document.getElementById("foldBtn"),
@@ -402,6 +405,10 @@
     state.tutorialHidden = !!hidden;
     if (el.tutorialPanel) {
       el.tutorialPanel.classList.toggle("hidden", state.tutorialHidden);
+    }
+    if (el.tutorialToggleBtn) {
+      el.tutorialToggleBtn.classList.toggle("hidden", !state.tutorialHidden);
+      el.tutorialToggleBtn.setAttribute("aria-expanded", String(!state.tutorialHidden));
     }
     try {
       window.localStorage.setItem(TUTORIAL_STORAGE_KEY, state.tutorialHidden ? "1" : "0");
@@ -764,6 +771,28 @@
     }
   }
 
+  function clearAutoNextHand() {
+    if (state.autoNextHandTimeoutId) {
+      window.clearTimeout(state.autoNextHandTimeoutId);
+      state.autoNextHandTimeoutId = null;
+    }
+  }
+
+  function canAutoStartNextHand() {
+    return state.handOver && !state.pendingStageAdvance && !state.replayInProgress;
+  }
+
+  function scheduleAutoNextHand() {
+    clearAutoNextHand();
+    if (!canAutoStartNextHand()) return;
+
+    state.autoNextHandTimeoutId = window.setTimeout(() => {
+      state.autoNextHandTimeoutId = null;
+      if (!canAutoStartNextHand()) return;
+      startHand();
+    }, AUTO_NEXT_HAND_DELAY_MS);
+  }
+
   function stopTurnTimer() {
     if (state.turnTimerIntervalId) {
       window.clearInterval(state.turnTimerIntervalId);
@@ -1006,6 +1035,7 @@
   }
 
   async function startHand() {
+    clearAutoNextHand();
     state.handId += 1;
     const handId = state.handId;
     stopTurnTimer();
@@ -1757,6 +1787,7 @@
     if (el.replayBtn) {
       el.replayBtn.disabled = state.lastHandLog.length === 0;
     }
+    scheduleAutoNextHand();
   }
 
   async function replayLastHand() {
@@ -1766,6 +1797,7 @@
       return;
     }
 
+    clearAutoNextHand();
     state.replayInProgress = true;
     state.replayEntryId = null;
     render();
@@ -1780,11 +1812,12 @@
         render();
         await sleep(620);
       }
-      setStatus("Replay complete.", "Use Next Hand to continue.");
+      setStatus("Replay complete.", state.pendingStageAdvance ? "Use Next Hand to continue." : "Next hand starts automatically.");
     } finally {
       state.replayInProgress = false;
       state.replayEntryId = null;
       render();
+      scheduleAutoNextHand();
     }
   }
 
@@ -2336,12 +2369,14 @@
 
   function bindEvents() {
     el.nextHandBtn.addEventListener("click", () => {
+      clearAutoNextHand();
       el.nextHandBtn.disabled = true;
       startHand();
     });
 
     if (el.replayBtn) {
       el.replayBtn.addEventListener("click", () => {
+        clearAutoNextHand();
         replayLastHand();
       });
     }
@@ -2355,6 +2390,12 @@
     if (el.tutorialDismissBtn) {
       el.tutorialDismissBtn.addEventListener("click", () => {
         setTutorialVisibility(true);
+      });
+    }
+
+    if (el.tutorialToggleBtn) {
+      el.tutorialToggleBtn.addEventListener("click", () => {
+        setTutorialVisibility(false);
       });
     }
 

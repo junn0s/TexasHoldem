@@ -372,8 +372,17 @@ body {
 }
 
 .table-scene.mode-3d .community-zone {
-  top: 18%;
-  width: min(34%, 360px);
+  left: 1.8%;
+  top: 3.4%;
+  transform: none;
+  width: auto;
+  text-align: left;
+  z-index: 43;
+}
+
+.table-scene.mode-3d .pot-label {
+  font-size: 0.9rem;
+  letter-spacing: 0.14em;
 }
 
 .table-scene.mode-3d .community-cards {
@@ -381,7 +390,7 @@ body {
 }
 
 .table-scene.mode-3d .pot-amount {
-  font-size: 2.25rem;
+  font-size: 2.5rem;
 }
 
 .corner-cards-hud {
@@ -1408,6 +1417,27 @@ body {
   display: none !important;
 }
 
+.tutorial-toggle {
+  position: absolute;
+  right: 1.1%;
+  bottom: 1.2%;
+  z-index: 36;
+  min-height: 32px;
+  padding: 0.28rem 0.74rem;
+  border-radius: 9px;
+  border: 1px solid rgba(132, 191, 248, 0.62);
+  background: linear-gradient(150deg, rgba(33, 56, 80, 0.9), rgba(18, 32, 47, 0.88));
+  color: #d8ebff;
+  font-weight: 700;
+  font-family: inherit;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+}
+
+.tutorial-toggle.hidden {
+  display: none !important;
+}
+
 .tutorial-title {
   font-size: 0.82rem;
   letter-spacing: 0.09em;
@@ -1765,6 +1795,11 @@ body {
     bottom: 2%;
   }
 
+  .tutorial-toggle {
+    right: 1%;
+    bottom: 2%;
+  }
+
   .stage-banner {
     min-width: min(520px, 94%);
     top: 2.8%;
@@ -1899,6 +1934,20 @@ body {
     bottom: 33%;
     max-height: 23%;
     overflow: auto;
+  }
+
+  .table-scene.mode-3d .tutorial-panel {
+    width: min(370px, 68%);
+    right: 1%;
+    left: auto;
+    bottom: 1%;
+    max-height: 26%;
+    overflow: auto;
+  }
+
+  .tutorial-toggle {
+    right: 1%;
+    bottom: 1%;
   }
 
   .stage-banner {
