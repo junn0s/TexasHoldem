@@ -850,7 +850,7 @@
         depthTest: true
       });
       const timerSprite = new THREE.Sprite(timerSpriteMaterial);
-      timerSprite.position.set(0, 2.18, 0.18);
+      timerSprite.position.set(0, 2.42, 0.18);
       timerSprite.scale.set(0.72, 0.72, 1);
       timerSprite.visible = false;
       root.add(timerSprite);
@@ -2031,7 +2031,7 @@
           const timerOpacityTarget = entry.active ? 0.98 : 0.82;
           timerMaterial.opacity += (timerOpacityTarget - timerMaterial.opacity) * (1 - Math.exp(-dt * 10));
           const bob = entry.active ? Math.sin(ctx.time * 7 + index) * 0.03 : 0;
-          entry.timerSprite.position.y = 2.18 + bob;
+          entry.timerSprite.position.y = 2.42 + bob;
           const targetScale = entry.active ? 0.76 : 0.72;
           entry.timerSprite.scale.x += (targetScale - entry.timerSprite.scale.x) * (1 - Math.exp(-dt * 8));
           entry.timerSprite.scale.y += (targetScale - entry.timerSprite.scale.y) * (1 - Math.exp(-dt * 8));

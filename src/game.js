@@ -3,7 +3,7 @@
   const SMALL_BLIND = 10;
   const BIG_BLIND = 20;
   const TURN_TIME_MS = 30000;
-  const NPC_MIN_THINK_MS = 5000;
+  const NPC_MIN_THINK_MS = 2000;
   const NPC_MAX_THINK_MS = 11000;
   const HANDS_PER_LEVEL = 3;
   const BLIND_LEVELS = [
@@ -788,14 +788,8 @@
     if (!player || !canAct(player)) return;
 
     stopTurnTimer();
-    const toCall = Math.max(0, state.currentBet - player.currentBet);
-    if (toCall > 0) {
-      setStatus(`${player.name} timed out.`, "Auto-folded.");
-      applyAction(player, "fold");
-      return;
-    }
-    setStatus(`${player.name} timed out.`, "Auto-check.");
-    applyAction(player, "checkcall");
+    setStatus(`${player.name} timed out.`, "Auto-folded.");
+    applyAction(player, "fold");
   }
 
   function startTurnTimer(seatIndex) {
