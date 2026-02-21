@@ -82,6 +82,9 @@
     dealLayer: document.getElementById("dealLayer"),
     boardMiniLabel: document.getElementById("boardMiniLabel"),
     boardMiniCards: document.getElementById("boardMiniCards"),
+    cornerCardsHud: document.getElementById("cornerCardsHud"),
+    cornerHeroCards: document.getElementById("cornerHeroCards"),
+    cornerBoardCards: document.getElementById("cornerBoardCards"),
     handReadout: document.getElementById("handReadout"),
     dealerHands: document.querySelector(".dealer-hands"),
     communityCards: document.getElementById("communityCards"),
@@ -98,7 +101,6 @@
     blindInfo: document.getElementById("blindInfo"),
     blindLevel: document.getElementById("blindLevel"),
     blindPositions: document.getElementById("blindPositions"),
-    handHistory: document.getElementById("handHistory"),
     replayBtn: document.getElementById("replayBtn"),
     tutorialPanel: document.getElementById("tutorialPanel"),
     tutorialDismissBtn: document.getElementById("tutorialDismissBtn"),
@@ -724,6 +726,8 @@
       peeking: player.isHuman && state.holePeek && !state.handOver && !player.folded,
       holeCount,
       reveal: revealCards,
+      actionLabel: player.lastAction || "",
+      actionTone: player.actionTone || "",
       cards: (cards || []).map((card) => ({ rank: card.rank, suit: card.suit }))
     });
   }
@@ -1977,9 +1981,9 @@
 
     renderCommunityCards();
     renderBoardMini();
+    renderCornerCardsHud();
     renderSeats();
     renderHandReadout();
-    renderHandHistory();
     renderShowdownPanel();
     renderControls();
     sync3DTableState();
@@ -2045,27 +2049,6 @@
       .join("");
 
     el.handReadout.innerHTML = `${header}${rows}`;
-  }
-
-  function renderHandHistory() {
-    if (!el.handHistory) return;
-    const entries = state.currentHandLog.slice(-HISTORY_PREVIEW);
-    const visible = entries.length > 0 ? entries : state.lastHandLog.slice(-HISTORY_PREVIEW);
-    const header = `<div class="hand-history-head"><span>HAND LOG</span><span>${visible.length}</span></div>`;
-
-    if (visible.length === 0) {
-      el.handHistory.innerHTML = `${header}<div class="history-row">No hand history yet. Start a hand.</div>`;
-      return;
-    }
-
-    const rows = visible
-      .map((entry) => {
-        const type = entry.type || "info";
-        const replayClass = state.replayEntryId === entry.id ? " replay-active" : "";
-        return `<div class="history-row ${type}${replayClass}">${entry.text}</div>`;
-      })
-      .join("");
-    el.handHistory.innerHTML = `${header}<div class="hand-history-list">${rows}</div>`;
   }
 
   function renderShowdownPanel() {
@@ -2143,6 +2126,57 @@
 
     const hidden = Array.from({ length: hiddenCount }, () => `<span class="board-mini-card back">★</span>`).join("");
     el.boardMiniCards.innerHTML = shown + hidden;
+  }
+
+  function makeCornerCardHtml(card, mode = "front") {
+    if (mode === "empty") {
+      return `<span class="corner-card empty">·</span>`;
+    }
+
+    if (mode === "back") {
+      return `<span class="corner-card back">★</span>`;
+    }
+
+    if (!card) {
+      return `<span class="corner-card empty">·</span>`;
+    }
+
+    const isRed = card.suit === "H" || card.suit === "D";
+    return `<span class="corner-card${isRed ? " red" : ""}">${cardText(card)}</span>`;
+  }
+
+  function renderCornerCardsHud() {
+    if (!el.cornerCardsHud || !el.cornerHeroCards || !el.cornerBoardCards) return;
+
+    const humanIndex = state.players.findIndex((player) => player.isHuman);
+    const human = humanIndex >= 0 ? state.players[humanIndex] : null;
+    if (!human) {
+      el.cornerCardsHud.style.display = "none";
+      return;
+    }
+
+    el.cornerCardsHud.style.display = "";
+
+    const dealt = humanIndex >= 0 ? state.dealtHoleCounts[humanIndex] || 0 : 0;
+    const revealHero = !human.folded && (state.holePeek || state.handOver || !!human.showdown);
+    const heroCards = [];
+    for (let i = 0; i < 2; i += 1) {
+      const card = human.hand[i];
+      if (!card || dealt <= i) {
+        heroCards.push(makeCornerCardHtml(null, state.handOver ? "empty" : "back"));
+        continue;
+      }
+      heroCards.push(makeCornerCardHtml(card, revealHero ? "front" : "back"));
+    }
+    el.cornerHeroCards.innerHTML = heroCards.join("");
+
+    const visibleBoard = state.communityCards.slice(0, state.communityVisible);
+    const boardCards = visibleBoard.map((card) => makeCornerCardHtml(card, "front"));
+    const hiddenCount = Math.max(0, 5 - visibleBoard.length);
+    for (let i = 0; i < hiddenCount; i += 1) {
+      boardCards.push(makeCornerCardHtml(null, "empty"));
+    }
+    el.cornerBoardCards.innerHTML = boardCards.join("");
   }
 
   function renderSeats() {

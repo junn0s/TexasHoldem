@@ -351,6 +351,10 @@ body {
   display: block;
 }
 
+.table-scene.mode-3d .board-mini {
+  display: none;
+}
+
 #poker3dViewport canvas {
   width: 100% !important;
   height: 100% !important;
@@ -380,18 +384,105 @@ body {
   font-size: 2.25rem;
 }
 
+.corner-cards-hud {
+  display: none;
+}
+
+.table-scene.mode-3d .corner-cards-hud {
+  position: absolute;
+  left: 1.2%;
+  bottom: 1.8%;
+  z-index: 42;
+  display: grid;
+  gap: 0.42rem;
+  width: min(430px, 38%);
+  padding: 0.56rem 0.62rem;
+  border-radius: 14px;
+  border: 1px solid rgba(225, 191, 118, 0.44);
+  background: linear-gradient(165deg, rgba(5, 12, 18, 0.9), rgba(8, 18, 28, 0.84));
+  box-shadow: 0 12px 18px rgba(0, 0, 0, 0.34);
+  backdrop-filter: blur(4px);
+}
+
+.corner-cards-block {
+  display: grid;
+  gap: 0.22rem;
+}
+
+.corner-cards-label {
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  color: #b8d8f5;
+  font-weight: 700;
+}
+
+.corner-cards-row {
+  display: flex;
+  align-items: center;
+  gap: 0.24rem;
+  min-height: 2.4rem;
+}
+
+.corner-card {
+  width: 2.28rem;
+  height: 2.28rem;
+  border-radius: 0.34rem;
+  border: 1px solid rgba(214, 222, 231, 0.42);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(176deg, #f8f3e8, #e4dfd2);
+  color: #13171d;
+  font-family: "Cinzel", serif;
+  font-size: 1.04rem;
+  font-weight: 700;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.24);
+  transform-origin: center;
+}
+
+.corner-cards-row.hero .corner-card:nth-child(1) {
+  transform: rotate(-6deg);
+}
+
+.corner-cards-row.hero .corner-card:nth-child(2) {
+  transform: rotate(4deg);
+}
+
+.corner-card.red {
+  color: #b03030;
+}
+
+.corner-card.back {
+  color: rgba(255, 255, 255, 0.86);
+  border-color: rgba(140, 169, 214, 0.55);
+  background:
+    linear-gradient(45deg, rgba(0, 0, 0, 0.14) 25%, transparent 25%),
+    linear-gradient(-45deg, rgba(0, 0, 0, 0.14) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, rgba(0, 0, 0, 0.14) 75%),
+    linear-gradient(-45deg, transparent 75%, rgba(0, 0, 0, 0.14) 75%);
+  background-size: 8px 8px;
+  background-position: 0 0, 0 4px, 4px -4px, -4px 0;
+  background-color: var(--chip-blue);
+}
+
+.corner-card.empty {
+  border-style: dashed;
+  color: rgba(183, 201, 222, 0.72);
+  background: rgba(21, 34, 46, 0.75);
+  box-shadow: none;
+}
+
 .hand-readout {
   display: none;
 }
 
 .table-scene.mode-3d .hand-readout {
-  position: absolute;
-  right: 1.1%;
-  top: 1.4%;
-  width: min(540px, 44%);
+  position: relative;
+  width: 100%;
   display: grid;
   gap: 0.34rem;
-  z-index: 36;
+  z-index: 8;
+  margin: 0.56rem 0 0;
   padding: 0.7rem 0.78rem;
   border-radius: 12px;
   border: 1px solid rgba(225, 191, 118, 0.4);
@@ -1308,6 +1399,11 @@ body {
   box-shadow: 0 10px 16px rgba(0, 0, 0, 0.32);
 }
 
+.table-scene.mode-3d .tutorial-panel {
+  left: auto;
+  right: 1.1%;
+}
+
 .tutorial-panel.hidden {
   display: none !important;
 }
@@ -1642,13 +1738,16 @@ body {
   }
 
   .table-scene.mode-3d .hand-readout {
+    margin-top: 0.48rem;
+    padding: 0.62rem;
+    max-height: none;
+    overflow: visible;
+  }
+
+  .table-scene.mode-3d .corner-cards-hud {
+    width: min(420px, 52%);
     left: 1%;
-    right: 1%;
-    top: auto;
-    bottom: 1%;
-    width: auto;
-    max-height: 38%;
-    overflow: auto;
+    bottom: 1.4%;
   }
 
   .table-scene.mode-3d .hand-history {
@@ -1766,6 +1865,26 @@ body {
 
   .table-scene.mode-3d .hand-readout {
     font-size: 0.92em;
+    padding: 0.52rem;
+  }
+
+  .table-scene.mode-3d .corner-cards-hud {
+    width: calc(100% - 2%);
+    left: 1%;
+    right: 1%;
+    bottom: 1%;
+    padding: 0.42rem 0.5rem;
+    gap: 0.28rem;
+  }
+
+  .corner-cards-label {
+    font-size: 0.65rem;
+  }
+
+  .corner-card {
+    width: 2rem;
+    height: 2rem;
+    font-size: 0.92rem;
   }
 
   .table-scene.mode-3d .hand-history {

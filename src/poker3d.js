@@ -148,6 +148,7 @@
     modelTemplate: null,
     modelLoading: false,
     textureCache: new Map(),
+    actionTextureCache: new Map(),
     skinName: "classic",
     lights: null,
     roomMaterials: null,
@@ -822,6 +823,19 @@
       ring.position.y = -0.29;
       root.add(ring);
 
+      const actionSpriteMaterial = new THREE.SpriteMaterial({
+        color: 0xffffff,
+        transparent: true,
+        opacity: 0,
+        depthWrite: false,
+        depthTest: true
+      });
+      const actionSprite = new THREE.Sprite(actionSpriteMaterial);
+      actionSprite.position.set(0, 1.38, 0.15);
+      actionSprite.scale.set(1.48, 0.54, 1);
+      actionSprite.visible = false;
+      root.add(actionSprite);
+
       ctx.scene.add(root);
 
       ctx.players.push({
@@ -835,6 +849,7 @@
         mixer: null,
         actions: null,
         ring,
+        actionSprite,
         holeCards: [],
         basePos: basePos.clone(),
         baseY: basePos.y,
@@ -845,6 +860,8 @@
         folded: false,
         reveal: false,
         actionType: "",
+        actionLabel: "",
+        actionTone: "",
         actionTimer: 0,
         actionDuration: 0.4,
         actionPower: 0,
@@ -970,6 +987,120 @@
     const tex = createCanvasTexture(canvas);
     ctx.textureCache.set(key, tex);
     return tex;
+  }
+
+  function actionToneStyle(tone = "", label = "") {
+    const normalizedTone = String(tone || "").toLowerCase();
+    const normalizedLabel = String(label || "").toLowerCase();
+
+    if (normalizedTone === "danger" || normalizedLabel.includes("fold")) {
+      return {
+        bgA: "#6b1f27",
+        bgB: "#3b1116",
+        border: "#e98b8b",
+        text: "#ffe2e2"
+      };
+    }
+
+    if (
+      normalizedTone === "strong" ||
+      normalizedLabel.includes("raise") ||
+      normalizedLabel.includes("bet") ||
+      normalizedLabel.includes("all-in") ||
+      normalizedLabel.includes("won")
+    ) {
+      return {
+        bgA: "#70521c",
+        bgB: "#463212",
+        border: "#f0ca86",
+        text: "#ffe9bc"
+      };
+    }
+
+    return {
+      bgA: "#1f4262",
+      bgB: "#152d43",
+      border: "#98c8f0",
+      text: "#ddf0ff"
+    };
+  }
+
+  function getActionBadgeTexture(label, tone = "") {
+    const text = String(label || "").trim().toUpperCase();
+    const key = `action-${tone}-${text}`;
+    if (ctx.actionTextureCache.has(key)) {
+      return ctx.actionTextureCache.get(key);
+    }
+
+    const canvas = document.createElement("canvas");
+    canvas.width = 512;
+    canvas.height = 160;
+    const c = canvas.getContext("2d");
+    const style = actionToneStyle(tone, text);
+
+    c.clearRect(0, 0, canvas.width, canvas.height);
+    c.save();
+    c.shadowColor = "rgba(0,0,0,0.38)";
+    c.shadowBlur = 14;
+    c.shadowOffsetY = 4;
+
+    const grad = c.createLinearGradient(0, 16, 0, 126);
+    grad.addColorStop(0, style.bgA);
+    grad.addColorStop(1, style.bgB);
+    c.fillStyle = grad;
+    roundedRectPath(c, 16, 16, canvas.width - 32, 112, 24);
+    c.fill();
+    c.restore();
+
+    c.lineWidth = 4;
+    c.strokeStyle = style.border;
+    roundedRectPath(c, 16, 16, canvas.width - 32, 112, 24);
+    c.stroke();
+
+    c.beginPath();
+    c.moveTo(canvas.width / 2 - 18, 128);
+    c.lineTo(canvas.width / 2 + 18, 128);
+    c.lineTo(canvas.width / 2, 152);
+    c.closePath();
+    c.fillStyle = style.bgB;
+    c.fill();
+    c.lineWidth = 3;
+    c.strokeStyle = style.border;
+    c.stroke();
+
+    c.fillStyle = style.text;
+    c.font = '700 54px "Rajdhani", sans-serif';
+    c.textAlign = "center";
+    c.textBaseline = "middle";
+    c.fillText(text, canvas.width / 2, 72, canvas.width - 58);
+
+    const texture = createCanvasTexture(canvas);
+    ctx.actionTextureCache.set(key, texture);
+    return texture;
+  }
+
+  function setEntryActionBadge(entry, label, tone = "") {
+    if (!entry || !entry.actionSprite) return;
+    const text = String(label || "").trim();
+    const material = entry.actionSprite.material;
+    if (!material) return;
+
+    if (!text) {
+      entry.actionSprite.visible = false;
+      material.opacity = 0;
+      entry.actionLabel = "";
+      entry.actionTone = "";
+      return;
+    }
+
+    const changed = entry.actionLabel !== text || entry.actionTone !== tone;
+    entry.actionLabel = text;
+    entry.actionTone = tone;
+    if (changed || !material.map) {
+      material.map = getActionBadgeTexture(text, tone);
+      material.needsUpdate = true;
+    }
+    entry.actionSprite.visible = true;
   }
 
   function createCardMesh(hidden = true, card = null) {
@@ -1260,6 +1391,8 @@
     const holeCount = Math.max(0, Math.min(2, playerState.holeCount || 0));
     const reveal = !!playerState.reveal;
     const cards = Array.isArray(playerState.cards) ? playerState.cards : [];
+    const actionLabel = typeof playerState.actionLabel === "string" ? playerState.actionLabel : "";
+    const actionTone = typeof playerState.actionTone === "string" ? playerState.actionTone : "";
 
     entry.allIn = allIn;
     entry.active = active;
@@ -1289,6 +1422,7 @@
     });
 
     entry.ring.visible = active;
+    setEntryActionBadge(entry, actionLabel, actionTone);
   }
 
   function setTableState(tableState = {}) {
@@ -1321,6 +1455,8 @@
       entry.folded = false;
       entry.reveal = false;
       entry.actionType = "";
+      entry.actionLabel = "";
+      entry.actionTone = "";
       entry.actionTimer = 0;
       entry.actionDuration = 0.4;
       entry.actionPower = 0;
@@ -1331,6 +1467,10 @@
       entry.root.position.y = entry.baseY;
       entry.root.position.z = entry.basePos.z;
       entry.ring.visible = false;
+      if (entry.actionSprite && entry.actionSprite.material) {
+        entry.actionSprite.visible = false;
+        entry.actionSprite.material.opacity = 0;
+      }
 
       entry.holeCards.forEach((cardMesh, cardIndex) => {
         cardMesh.visible = false;
@@ -1729,6 +1869,21 @@
         const swing = lunge > 0 ? Math.sin(actionProgress * Math.PI) * 0.62 : 0;
         armL.rotation.x = idle + swing;
         armR.rotation.x = -idle + swing * 0.85;
+      }
+
+      if (entry.actionSprite && entry.actionSprite.material) {
+        const material = entry.actionSprite.material;
+        if (entry.actionSprite.visible) {
+          const pulse = entry.active ? 0.06 * Math.sin(ctx.time * 8 + index) : 0;
+          const targetOpacity = (entry.folded ? 0.72 : 0.9) + pulse;
+          material.opacity += (targetOpacity - material.opacity) * (1 - Math.exp(-dt * 10));
+          entry.actionSprite.position.y = 1.34 + (entry.active ? 0.03 : 0);
+          const targetScale = entry.active ? 1.62 : 1.48;
+          entry.actionSprite.scale.x += (targetScale - entry.actionSprite.scale.x) * (1 - Math.exp(-dt * 9));
+          entry.actionSprite.scale.y += ((targetScale * 0.36) - entry.actionSprite.scale.y) * (1 - Math.exp(-dt * 9));
+        } else {
+          material.opacity = 0;
+        }
       }
     });
 
