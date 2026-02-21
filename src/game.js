@@ -3,7 +3,7 @@
   const SMALL_BLIND = 10;
   const BIG_BLIND = 20;
   const TURN_TIME_MS = 30000;
-  const AUTO_NEXT_HAND_DELAY_MS = 2600;
+  const NEXT_HAND_IDLE_TIMEOUT_MS = 10000;
   const NPC_MIN_THINK_MS = 2000;
   const NPC_MAX_THINK_MS = 11000;
   const HANDS_PER_LEVEL = 3;
@@ -26,6 +26,12 @@
   const SKIN_STORAGE_KEY = "underground-holdem-skin";
   const TUTORIAL_STORAGE_KEY = "underground-holdem-tutorial-dismissed";
   const SOUND_STORAGE_KEY = "underground-holdem-sound-enabled";
+  const HOME_ART_CANDIDATES = [
+    "assets/home/home-srceen.png",
+    "assets/home/home-screen.png",
+    "assets/home/home-screen.jpg",
+    "assets/home/home-screen.webp"
+  ];
 
   const RANKS = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14];
   const SUITS = ["S", "H", "D", "C"];
@@ -83,7 +89,8 @@
     skin: "classic",
     tutorialHidden: false,
     stageBannerTimer: null,
-    autoNextHandTimeoutId: null
+    autoNextHandTimeoutId: null,
+    homeVisible: true
   };
 
   const el = {
@@ -114,6 +121,10 @@
     tutorialPanel: document.getElementById("tutorialPanel"),
     tutorialDismissBtn: document.getElementById("tutorialDismissBtn"),
     tutorialToggleBtn: document.getElementById("tutorialToggleBtn"),
+    inHandReadout: document.getElementById("inHandReadout"),
+    inHandTitle: document.getElementById("inHandTitle"),
+    inHandMeta: document.getElementById("inHandMeta"),
+    inHandList: document.getElementById("inHandList"),
     skinSelect: document.getElementById("skinSelect"),
     soundToggle: document.getElementById("soundToggle"),
     foldBtn: document.getElementById("foldBtn"),
@@ -121,7 +132,10 @@
     peekBtn: document.getElementById("peekBtn"),
     raiseBtn: document.getElementById("raiseBtn"),
     raiseRange: document.getElementById("raiseRange"),
-    raiseAmount: document.getElementById("raiseAmount")
+    raiseAmount: document.getElementById("raiseAmount"),
+    homeScreen: document.getElementById("homeScreen"),
+    startGameBtn: document.getElementById("startGameBtn"),
+    enterTableBtn: document.getElementById("enterTableBtn")
   };
 
   const audio = {
@@ -261,6 +275,46 @@
     el.statusSub.textContent = sub;
   }
 
+  function setupHomeScreenArt() {
+    if (!el.homeScreen) return;
+
+    const tryCandidate = (index) => {
+      if (index >= HOME_ART_CANDIDATES.length) return;
+      const assetPath = HOME_ART_CANDIDATES[index];
+      const probe = new Image();
+      probe.onload = () => {
+        el.homeScreen.classList.add("home-art-ready");
+        el.homeScreen.style.setProperty("--home-art-url", `url("${assetPath}")`);
+      };
+      probe.onerror = () => {
+        tryCandidate(index + 1);
+      };
+      probe.src = assetPath;
+    };
+
+    tryCandidate(0);
+  }
+
+  function setHomeVisibility(visible) {
+    state.homeVisible = !!visible;
+    if (el.homeScreen) {
+      el.homeScreen.classList.toggle("hidden", !state.homeVisible);
+    }
+    document.body.classList.toggle("home-open", state.homeVisible);
+  }
+
+  function startGameFromHome() {
+    setHomeVisibility(false);
+    unlockAudio();
+    if (state.handId === 0 && state.handOver) {
+      clearAutoNextHand();
+      el.nextHandBtn.disabled = true;
+      startHand();
+      return;
+    }
+    render();
+  }
+
   function setPlayerAction(player, text, tone = "") {
     player.lastAction = text;
     player.actionTone = tone;
@@ -320,7 +374,7 @@
     const nextProfile = stageProfileFor(state.tournamentStage + 1);
     state.pendingStageAdvance = true;
     logHistory(`Stage ${state.tournamentStage + 1} clear. Next: Stage ${state.tournamentStage + 2} ${nextProfile.name}.`, "stage");
-    setStatus(`Stage ${state.tournamentStage + 1} clear!`, `Press Next Hand to enter Stage ${state.tournamentStage + 2}.`);
+    setStatus(`Stage ${state.tournamentStage + 1} clear!`, `Press Next Hand, or auto-advance in ${Math.round(NEXT_HAND_IDLE_TIMEOUT_MS / 1000)}s.`);
     showStageBanner(
       `Stage ${state.tournamentStage + 1} Clear`,
       `Next: Stage ${state.tournamentStage + 2} · ${nextProfile.name}`,
@@ -779,18 +833,19 @@
   }
 
   function canAutoStartNextHand() {
-    return state.handOver && !state.pendingStageAdvance && !state.replayInProgress;
+    return state.handOver && !state.replayInProgress;
   }
 
   function scheduleAutoNextHand() {
     clearAutoNextHand();
     if (!canAutoStartNextHand()) return;
+    const delay = NEXT_HAND_IDLE_TIMEOUT_MS;
 
     state.autoNextHandTimeoutId = window.setTimeout(() => {
       state.autoNextHandTimeoutId = null;
       if (!canAutoStartNextHand()) return;
       startHand();
-    }, AUTO_NEXT_HAND_DELAY_MS);
+    }, delay);
   }
 
   function stopTurnTimer() {
@@ -1812,7 +1867,10 @@
         render();
         await sleep(620);
       }
-      setStatus("Replay complete.", state.pendingStageAdvance ? "Use Next Hand to continue." : "Next hand starts automatically.");
+      setStatus(
+        "Replay complete.",
+        `Auto-advance in ${Math.round(NEXT_HAND_IDLE_TIMEOUT_MS / 1000)}s or press Next Hand.`
+      );
     } finally {
       state.replayInProgress = false;
       state.replayEntryId = null;
@@ -2099,6 +2157,7 @@
     renderCommunityCards();
     renderBoardMini();
     renderCornerCardsHud();
+    renderInHandReadout();
     renderSeats();
     renderShowdownPanel();
     renderControls();
@@ -2236,6 +2295,55 @@
       boardCards.push(makeCornerCardHtml(null, "empty"));
     }
     el.cornerBoardCards.innerHTML = boardCards.join("");
+  }
+
+  function readoutStateForPlayer(player, index) {
+    if (player.chips <= 0 && player.folded) return { label: "OUT", tone: "fold" };
+    if (!state.handOver && index === state.activePlayerIndex) return { label: "TURN", tone: "turn" };
+    if (!state.handOver && player.allIn && !player.folded) return { label: "ALL-IN", tone: "allin" };
+    if (player.folded) return { label: "FOLD", tone: "fold" };
+    if (state.handOver) {
+      return /\bWon\b/i.test(player.lastAction || "") ? { label: "WIN", tone: "inpot" } : { label: "DONE", tone: "call" };
+    }
+    if (state.currentBet > 0 && player.currentBet === state.currentBet && player.currentBet > 0) return { label: "CALL", tone: "call" };
+    if (player.currentBet > 0) return { label: "BET", tone: "call" };
+    return { label: "IN", tone: "inpot" };
+  }
+
+  function renderInHandReadout() {
+    if (!el.inHandReadout || !el.inHandList) return;
+
+    const inHandCount = state.players.filter((player) => !player.folded).length;
+    if (el.inHandTitle) {
+      el.inHandTitle.textContent = `IN HAND ${inHandCount}`;
+    }
+    if (el.inHandMeta) {
+      if (state.pendingStageAdvance) {
+        el.inHandMeta.textContent = "NEXT STAGE";
+      } else if (state.handOver) {
+        el.inHandMeta.textContent = "HAND OVER";
+      } else if (state.stage === "idle") {
+        el.inHandMeta.textContent = "READY";
+      } else {
+        el.inHandMeta.textContent = state.stage.toUpperCase();
+      }
+    }
+
+    const rows = state.players
+      .map((player, index) => {
+        const info = readoutStateForPlayer(player, index);
+        const rowClasses = ["hand-readout-row"];
+        if (!state.handOver && index === state.activePlayerIndex) rowClasses.push("active");
+        if (player.folded) rowClasses.push("folded");
+        if (!state.handOver && player.allIn && !player.folded) rowClasses.push("allin");
+        if (player.isHuman) rowClasses.push("hero");
+
+        const playerName = player.isHuman ? `${player.name} (YOU)` : player.name;
+        return `<div class="${rowClasses.join(" ")}"><span class="name">${playerName}</span><span class="chips">${toCurrency(player.chips)}</span><span class="bet">${toCurrency(player.currentBet)}</span><span class="state"><span class="state-pill ${info.tone}">${info.label}</span></span></div>`;
+      })
+      .join("");
+
+    el.inHandList.innerHTML = rows;
   }
 
   function renderSeats() {
@@ -2405,6 +2513,20 @@
       });
     }
 
+    if (el.startGameBtn) {
+      el.startGameBtn.addEventListener("click", () => {
+        startGameFromHome();
+      });
+    }
+
+    if (el.enterTableBtn) {
+      el.enterTableBtn.addEventListener("click", () => {
+        setHomeVisibility(false);
+        unlockAudio();
+        render();
+      });
+    }
+
     const primeAudio = () => {
       unlockAudio();
     };
@@ -2451,6 +2573,13 @@
       if (tag === "input" || tag === "select" || tag === "textarea" || (target && target.isContentEditable)) return;
 
       const key = event.key.toLowerCase();
+      if (state.homeVisible) {
+        if ((key === "enter" || key === " ") && el.startGameBtn) {
+          event.preventDefault();
+          el.startGameBtn.click();
+        }
+        return;
+      }
       if (key === "f" && !el.foldBtn.disabled) {
         event.preventDefault();
         el.foldBtn.click();
@@ -2508,15 +2637,17 @@
     loadPreferences();
     initSeats();
     bindEvents();
+    setupHomeScreenArt();
 
     if (mode3D) {
-      setStatus("Table ready.", "3D scene loaded. Press Next Hand or N.");
+      setStatus("Welcome.", "3D scene loaded. Press Start Game.");
     } else {
-      setStatus("Table ready.", "WebGL unavailable. Running enhanced fallback view.");
+      setStatus("Welcome.", "WebGL fallback loaded. Press Start Game.");
     }
     render();
 
-    el.nextHandBtn.disabled = false;
+    el.nextHandBtn.disabled = true;
+    setHomeVisibility(true);
   }
 
   bootstrap();

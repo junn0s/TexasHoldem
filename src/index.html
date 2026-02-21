@@ -14,6 +14,17 @@
   </head>
   <body>
     <div class="app-bg"></div>
+    <section class="home-screen" id="homeScreen" aria-label="Home Screen">
+      <div class="home-shell">
+        <p class="home-kicker">UNDERGROUND TABLE</p>
+        <h1 class="home-title">NO-LIMIT HOLD'EM</h1>
+        <p class="home-copy">연속 핸드와 스테이지를 돌파하며 마지막까지 칩을 지키세요.</p>
+        <div class="home-actions">
+          <button class="home-btn primary" id="startGameBtn" type="button">Start Game</button>
+          <button class="home-btn" id="enterTableBtn" type="button">Enter Table</button>
+        </div>
+      </div>
+    </section>
     <main class="table-scene" id="tableScene">
       <header class="top-bar">
         <div class="top-left">
@@ -116,6 +127,17 @@
           <div class="seat seat-bottom" data-seat="2"></div>
           <div class="seat seat-left" data-seat="3"></div>
         </div>
+
+        <aside class="table-side" aria-label="Hand Readout">
+          <section class="hand-readout" id="inHandReadout" aria-live="polite">
+            <div class="hand-readout-head">
+              <span id="inHandTitle">IN HAND 0</span>
+              <span id="inHandMeta">READY</span>
+            </div>
+            <div class="hand-readout-list" id="inHandList"></div>
+          </section>
+          <section class="showdown-panel" id="showdownPanel" aria-live="polite"></section>
+        </aside>
       </section>
 
       <section class="action-panel">
@@ -123,7 +145,6 @@
           <div class="status-main" id="statusMain">Start a new hand.</div>
           <div class="status-sub" id="statusSub">You are seat 3.</div>
         </div>
-        <section class="showdown-panel" id="showdownPanel" aria-live="polite"></section>
 
         <div class="controls" id="controls">
           <button id="foldBtn" disabled>Fold</button>
