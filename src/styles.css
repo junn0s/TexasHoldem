@@ -235,6 +235,11 @@ body.home-open {
   color: #ffe9be;
 }
 
+.home-btn.off {
+  opacity: 0.78;
+  border-color: rgba(150, 165, 183, 0.55);
+}
+
 .table-scene {
   width: min(1280px, 99vw);
   margin: 1rem auto 1.8rem;

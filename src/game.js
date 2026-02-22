@@ -147,7 +147,8 @@
     raiseAmount: document.getElementById("raiseAmount"),
     homeScreen: document.getElementById("homeScreen"),
     startGameBtn: document.getElementById("startGameBtn"),
-    enterTableBtn: document.getElementById("enterTableBtn")
+    enterTableBtn: document.getElementById("enterTableBtn"),
+    homeSoundBtn: document.getElementById("homeSoundBtn")
   };
 
   const audio = {
@@ -510,9 +511,15 @@
   }
 
   function setSoundToggleUi() {
-    if (!el.soundToggle) return;
-    el.soundToggle.textContent = audio.enabled ? "Sound On" : "Sound Off";
-    el.soundToggle.classList.toggle("off", !audio.enabled);
+    if (el.soundToggle) {
+      el.soundToggle.textContent = audio.enabled ? "Sound On" : "Sound Off";
+      el.soundToggle.classList.toggle("off", !audio.enabled);
+    }
+
+    if (el.homeSoundBtn) {
+      el.homeSoundBtn.textContent = audio.enabled ? "Sound On" : "Sound Off";
+      el.homeSoundBtn.classList.toggle("off", !audio.enabled);
+    }
   }
 
   function musicContextForUi() {
@@ -710,6 +717,8 @@
       audio.musicEl.muted = false;
       audio.mutedAutoplay = false;
     }
+
+    setSoundToggleUi();
   }
 
   function setAudioEnabled(nextEnabled) {
@@ -871,6 +880,7 @@
 
     state.holePeek = nextValue;
     cue3D(nextValue ? "peekStart" : "peekEnd");
+    sync3DTurnTimer();
     render();
   }
 
@@ -940,6 +950,7 @@
 
   function sync3DPlayerState(index, player, holeCount, revealCards, cards) {
     if (!window.Poker3D || typeof window.Poker3D.setPlayerState !== "function") return;
+    const hidePeekHud = state.holePeek && !state.handOver;
 
     window.Poker3D.setPlayerState(index, {
       isHuman: player.isHuman,
@@ -949,8 +960,8 @@
       peeking: player.isHuman && state.holePeek && !state.handOver && !player.folded,
       holeCount,
       reveal: revealCards,
-      actionLabel: player.lastAction || "",
-      actionTone: player.actionTone || "",
+      actionLabel: hidePeekHud ? "" : player.lastAction || "",
+      actionTone: hidePeekHud ? "" : player.actionTone || "",
       cards: (cards || []).map((card) => ({ rank: card.rank, suit: card.suit }))
     });
   }
@@ -963,6 +974,7 @@
         !state.handOver &&
         !state.roundTransitioning &&
         !state.animatingDeal &&
+        !state.holePeek &&
         index === state.turnTimerSeatIndex &&
         canAct(player);
       window.Poker3D.setTurnTimer(index, {
@@ -2502,6 +2514,7 @@
   }
 
   function renderSeats() {
+    const hidePeekHud = state.holePeek && !state.handOver;
     el.seats.forEach((seatEl, i) => {
       const player = state.players[i];
       const inner = seatEl.querySelector(".seat-inner");
@@ -2522,11 +2535,11 @@
       if (i === state.smallBlindIndex) blindText = `SB ${state.smallBlind}`;
       if (i === state.bigBlindIndex) blindText = `BB ${state.bigBlind}`;
       blindBadgeEl.textContent = blindText;
-      blindBadgeEl.classList.toggle("show", !!blindText);
+      blindBadgeEl.classList.toggle("show", !!blindText && !hidePeekHud);
 
-      actionEl.textContent = player.lastAction || "";
+      actionEl.textContent = hidePeekHud ? "" : player.lastAction || "";
       actionEl.className = "action-tag";
-      if (player.actionTone) {
+      if (!hidePeekHud && player.actionTone) {
         actionEl.classList.add(player.actionTone);
       }
 
@@ -2679,6 +2692,12 @@
         unlockAudio();
         setHomeVisibility(false);
         render();
+      });
+    }
+
+    if (el.homeSoundBtn) {
+      el.homeSoundBtn.addEventListener("click", () => {
+        setAudioEnabled(!audio.enabled);
       });
     }
 

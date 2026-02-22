@@ -33,10 +33,10 @@
     const MODEL_URL = "vendor/three/Soldier.glb";
   
     const COLOR = {
-        tableFelt: 0x184531,      // 딥 그린으로 변경됨
-        tableFeltDark: 0x0c261a,  
-        wood: 0x24150d,           
-        woodDark: 0x2b1b14,       // 다크 초콜릿 가죽 색상
+        tableFelt: 0x0f3b25,
+        tableFeltDark: 0x082114,
+        wood: 0x24150d,
+        woodDark: 0x1a0f0a,
         floor: 0x171d23,
         wall: 0x11161b,
         cardBack: 0x2d4f9a,
@@ -51,14 +51,14 @@
         classic: {
           sceneBg: 0x030303,      // 완전 블랙
           fog: 0x030303,
-          tableFelt: 0x184531,
-          tableFeltDark: 0x0c261a,
+          tableFelt: 0x0f3b25,
+          tableFeltDark: 0x082114,
           wood: 0x24150d,
-          woodDark: 0x2b1b14,
+          woodDark: 0x1a0f0a,
           dealerButton: 0xc9a35f,
-          spot: 0xffcc88,         // 붉고 노란 텅스텐 핀 조명
+          spot: 0xffb444,         // 더 진한 노란 텅스텐 핀 조명
           rimLeft: 0x112233,
-          rimRight: 0x442211,
+          rimRight: 0x553311,
           roomFloor: 0x171d23,
           roomWall: 0x11161b,
           roomWood: 0x3d2b20,
@@ -170,8 +170,8 @@
       if (!container) return false;
   
       const scene = new THREE.Scene();
-      scene.background = new THREE.Color(0x091019);
-      scene.fog = new THREE.FogExp2(0x091019, 0.045);
+      scene.background = new THREE.Color(0x030303);
+      scene.fog = new THREE.FogExp2(0x030303, 0.055);
   
       const camera = new THREE.PerspectiveCamera(43, 1, 0.1, 80);
       camera.position.copy(ctx.defaultCamera.pos);
@@ -193,6 +193,8 @@
       }
       renderer.shadowMap.enabled = true;
       renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1.03;
   
       container.appendChild(renderer.domElement);
   
@@ -230,31 +232,32 @@
   
     function buildLights() {
         // 전체 밝기를 0.05로 팍 낮춰서 주변을 암흑으로 만듦
-        const hemi = new THREE.HemisphereLight(0x8eb5e5, 0x1d1612, 0.05);
+        const hemi = new THREE.HemisphereLight(0x8eb5e5, 0x1d1612, 0.09);
         ctx.scene.add(hemi);
 
-        // 핀 조명 강도를 6.0으로 쏘고, 퍼지는 각도(0.65)를 줄여서 테이블만 비춤
-        const topSpot = new THREE.SpotLight(0xffcc88, 6.0, 50, 0.65, 0.8, 1.2);
+        // 텅스텐 느낌의 따뜻한 노란 핀 조명
+        const topSpot = new THREE.SpotLight(0xffb444, 4.8, 50, 0.65, 0.8, 1.2);
         topSpot.position.set(0, 10, 0); // 위치를 중앙 위로 이동
         topSpot.castShadow = true;
         topSpot.shadow.mapSize.width = 1024;
         topSpot.shadow.mapSize.height = 1024;
         topSpot.shadow.bias = -0.0005;
+        topSpot.shadow.radius = 4;
         topSpot.shadow.camera.near = 1;
         topSpot.shadow.camera.far = 30;
         topSpot.target.position.set(0, 1, 0);
         ctx.scene.add(topSpot);
         ctx.scene.add(topSpot.target);
 
-        const rimLeft = new THREE.PointLight(0x112233, 2.5, 22);
+        const rimLeft = new THREE.PointLight(0x112233, 3.1, 22);
         rimLeft.position.set(-8, 3, 4);
         ctx.scene.add(rimLeft);
 
-        const rimRight = new THREE.PointLight(0x442211, 1.8, 22);
+        const rimRight = new THREE.PointLight(0x553311, 2.2, 22);
         rimRight.position.set(8, 4, 4);
         ctx.scene.add(rimRight);
 
-        const barFill = new THREE.PointLight(0xffbf7a, 0.2, 16);
+        const barFill = new THREE.PointLight(0xffbf7a, 0.28, 16);
         barFill.position.set(0, 3.4, -9.2);
         ctx.scene.add(barFill);
 
@@ -523,7 +526,7 @@
       base.receiveShadow = true;
       ctx.scene.add(base);
   
-      const feltMat = new THREE.MeshStandardMaterial({ color: COLOR.tableFelt, roughness: 1.0, metalness: 0.0 });
+      const feltMat = new THREE.MeshStandardMaterial({ color: COLOR.tableFelt, roughness: 0.88, metalness: 0.02 });
       const felt = new THREE.Mesh(
         new THREE.CylinderGeometry(4.44, 4.5, 0.14, 80),
         feltMat
@@ -533,7 +536,7 @@
       felt.receiveShadow = true;
       ctx.scene.add(felt);
   
-      const innerFeltMat = new THREE.MeshStandardMaterial({ color: COLOR.tableFeltDark, roughness: 1.0, metalness: 0.0 });
+      const innerFeltMat = new THREE.MeshStandardMaterial({ color: COLOR.tableFeltDark, roughness: 0.88, metalness: 0.02 });
       const innerFelt = new THREE.Mesh(
         new THREE.CylinderGeometry(3.7, 3.76, 0.025, 80),
         innerFeltMat
@@ -542,7 +545,7 @@
       innerFelt.receiveShadow = true;
       ctx.scene.add(innerFelt);
   
-      const rimMat = new THREE.MeshStandardMaterial({ color: COLOR.woodDark, roughness: 0.65, metalness: 0.1 });
+      const rimMat = new THREE.MeshStandardMaterial({ color: COLOR.woodDark, roughness: 0.45, metalness: 0.15 });
       const rim = new THREE.Mesh(
         new THREE.TorusGeometry(4.58, 0.26, 28, 90),
         rimMat
@@ -552,7 +555,7 @@
       rim.castShadow = true;
       ctx.scene.add(rim);
   
-      const rimGoldMat = new THREE.MeshStandardMaterial({ color: 0xc9a35f, roughness: 0.3, metalness: 0.8 });
+      const rimGoldMat = new THREE.MeshStandardMaterial({ color: 0xc9a35f, roughness: 0.25, metalness: 1.0 });
       const rimGold = new THREE.Mesh(
         new THREE.TorusGeometry(4.58, 0.045, 14, 90),
         rimGoldMat
@@ -1222,8 +1225,8 @@
     function createCardMesh(hidden = true, card = null) {
       const material = new THREE.MeshStandardMaterial({
         color: 0xffffff,
-        roughness: hidden ? 0.42 : 0.52,
-        metalness: 0.06,
+        roughness: hidden ? 0.6 : 0.85,
+        metalness: 0.02,
         side: THREE.DoubleSide,
         map: hidden ? getBackTexture() : getFrontTexture(card),
         polygonOffset: true,
@@ -1241,7 +1244,7 @@
     function applyCardFace(mesh, card, hidden) {
       if (!mesh || !mesh.material) return;
       mesh.material.map = hidden ? getBackTexture() : getFrontTexture(card);
-      mesh.material.roughness = hidden ? 0.42 : 0.52;
+      mesh.material.roughness = hidden ? 0.6 : 0.85;
       mesh.material.needsUpdate = true;
     }
   
@@ -1925,8 +1928,8 @@
       }
   
       if (ctx.lights) {
-        ctx.lights.topSpot.intensity = 6.0 + Math.sin(ctx.time * 0.55) * 0.05;
-        ctx.lights.barFill.intensity = 0.1 + Math.sin(ctx.time * 0.8 + 1.1) * 0.05;
+        ctx.lights.topSpot.intensity = 4.8 + Math.sin(ctx.time * 0.55) * 0.24;
+        ctx.lights.barFill.intensity = 0.16 + Math.sin(ctx.time * 0.8 + 1.1) * 0.05;
       }
   
       const move = 1 - Math.exp(-dt * 3.6);
