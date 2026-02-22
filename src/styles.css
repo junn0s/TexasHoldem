@@ -195,6 +195,132 @@ body.home-open {
   gap: 0.58rem;
 }
 
+.home-guide {
+  margin-top: 0.86rem;
+  border: 1px solid rgba(122, 176, 228, 0.52);
+  border-radius: 16px;
+  padding: 0.85rem;
+  background:
+    radial-gradient(circle at 86% 12%, rgba(109, 171, 229, 0.18), transparent 30%),
+    linear-gradient(160deg, rgba(9, 18, 30, 0.95), rgba(8, 16, 27, 0.88));
+  color: #deecf8;
+  box-shadow:
+    0 16px 26px rgba(0, 0, 0, 0.34),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  max-height: min(58vh, 560px);
+  overflow: auto;
+}
+
+.home-guide.hidden {
+  display: none;
+}
+
+.home-guide-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  margin-bottom: 0.7rem;
+}
+
+.home-guide-title-wrap {
+  display: grid;
+  gap: 0.08rem;
+}
+
+.home-guide-kicker {
+  letter-spacing: 0.14em;
+  font-size: 0.67rem;
+  color: #a8c4e1;
+  font-weight: 700;
+}
+
+.home-guide-title {
+  margin: 0;
+  font-family: "Bebas Neue", sans-serif;
+  font-size: 1.52rem;
+  color: #f4d8a8;
+  letter-spacing: 0.08em;
+}
+
+.home-guide-close {
+  border: 1px solid rgba(225, 191, 118, 0.62);
+  border-radius: 10px;
+  min-height: 34px;
+  padding: 0.25rem 0.75rem;
+  background: linear-gradient(150deg, #4b351c, #34240f);
+  color: #ffe6bb;
+  font-family: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.home-guide-layout {
+  display: grid;
+  grid-template-columns: 1.15fr 1fr;
+  gap: 0.66rem;
+}
+
+.home-guide-card {
+  border: 1px solid rgba(138, 172, 211, 0.36);
+  border-radius: 12px;
+  padding: 0.56rem 0.6rem;
+  background: linear-gradient(150deg, rgba(8, 18, 30, 0.74), rgba(7, 16, 28, 0.46));
+}
+
+.home-guide-card-wide {
+  grid-column: 1 / -1;
+}
+
+.home-guide-card h3 {
+  margin: 0 0 0.4rem;
+  font-size: 0.88rem;
+  color: #f6d7a0;
+  letter-spacing: 0.04em;
+}
+
+.home-guide-list,
+.home-guide-steps,
+.home-guide-rank-list {
+  margin: 0;
+  padding-left: 1.05rem;
+  display: grid;
+  gap: 0.26rem;
+  font-size: 0.8rem;
+  line-height: 1.3;
+  color: #d4e2f1;
+}
+
+.home-guide-key-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.34rem 0.5rem;
+}
+
+.home-guide-key-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  border: 1px solid rgba(143, 175, 211, 0.28);
+  border-radius: 9px;
+  padding: 0.28rem 0.36rem;
+  background: rgba(6, 14, 24, 0.46);
+  font-size: 0.78rem;
+}
+
+.home-guide-key-row kbd {
+  min-width: 1.42rem;
+  height: 1.42rem;
+  border-radius: 7px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid rgba(226, 194, 132, 0.6);
+  background: linear-gradient(160deg, #2c2316, #1d170f);
+  color: #f6dbac;
+  font-weight: 700;
+  font-family: "Rajdhani", sans-serif;
+}
+
 .home-screen.home-art-ready .home-kicker,
 .home-screen.home-art-ready .home-title,
 .home-screen.home-art-ready .home-copy {
@@ -204,6 +330,18 @@ body.home-open {
 .home-screen.home-art-ready .home-actions {
   margin-top: 0;
   justify-content: center;
+}
+
+.home-screen.home-art-ready .home-guide {
+  border-color: rgba(214, 171, 97, 0.56);
+  background:
+    radial-gradient(circle at 86% 12%, rgba(213, 176, 105, 0.18), transparent 30%),
+    linear-gradient(160deg, rgba(34, 21, 12, 0.92), rgba(20, 14, 10, 0.84));
+}
+
+.home-screen.home-art-ready .home-guide-card {
+  border-color: rgba(212, 173, 103, 0.44);
+  background: linear-gradient(150deg, rgba(34, 21, 12, 0.72), rgba(20, 14, 10, 0.46));
 }
 
 .home-btn {
@@ -1723,6 +1861,52 @@ body.home-open {
   letter-spacing: 0.05em;
 }
 
+.game-over-modal {
+  position: absolute;
+  inset: 0;
+  z-index: 52;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: radial-gradient(circle at center, rgba(4, 8, 14, 0.45), rgba(3, 5, 9, 0.72));
+  backdrop-filter: blur(3px);
+}
+
+.game-over-modal.hidden {
+  display: none;
+}
+
+.game-over-card {
+  width: min(520px, 92%);
+  border-radius: 16px;
+  border: 1px solid rgba(219, 173, 95, 0.66);
+  padding: 1rem 1.05rem;
+  text-align: center;
+  background: linear-gradient(160deg, rgba(30, 18, 11, 0.94), rgba(13, 10, 9, 0.9));
+  box-shadow: 0 24px 34px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 237, 198, 0.08);
+}
+
+.game-over-kicker {
+  margin: 0;
+  font-size: 0.74rem;
+  letter-spacing: 0.18em;
+  color: #b8cee5;
+}
+
+.game-over-title {
+  margin: 0.16rem 0 0;
+  font-family: "Bebas Neue", sans-serif;
+  font-size: clamp(2rem, 5vw, 2.8rem);
+  letter-spacing: 0.11em;
+  color: #f2cf90;
+}
+
+.game-over-sub {
+  margin: 0.22rem 0 0.72rem;
+  color: #dbd7cf;
+  font-size: 0.95rem;
+}
+
 .action-panel {
   margin-top: 0.32rem;
   border-radius: 14px;
@@ -2022,6 +2206,14 @@ body.home-open {
   #peekBtn {
     grid-column: 1 / -1;
   }
+
+  .home-guide-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .home-guide-card-wide {
+    grid-column: auto;
+  }
 }
 
 @media (max-width: 640px) {
@@ -2036,6 +2228,14 @@ body.home-open {
 
   .home-btn {
     width: 100%;
+  }
+
+  .home-guide-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .home-guide-key-grid {
+    grid-template-columns: 1fr;
   }
 
   .top-bar {

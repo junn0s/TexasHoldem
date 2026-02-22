@@ -7,6 +7,7 @@
       setTableState: () => {},
       setPlayerState: () => {},
       setTurnTimer: () => {},
+      setPerformance: () => {},
       setSkin: () => {},
       throwCard: () => Promise.resolve(),
       throwChips: () => Promise.resolve(),
@@ -106,6 +107,9 @@
     };
   
     const TURN_TIMER_DEFAULT_MS = 30000;
+    const TURN_TIMER_OFFSET_X = 0.92;
+    const TURN_TIMER_OFFSET_Y = 2.16;
+    const TURN_TIMER_OFFSET_Z = 0.18;
   
     const ctx = {
       initialized: false,
@@ -154,6 +158,11 @@
       textureCache: new Map(),
       actionTextureCache: new Map(),
       skinName: "classic",
+      performanceMode: "high",
+      maxPixelRatio: 2,
+      minFrameIntervalMs: 0,
+      lastFrameMs: 0,
+      atmosphereAnimate: true,
       lights: null,
       roomMaterials: null,
       tableMaterials: null,
@@ -185,7 +194,7 @@
         return false;
       }
   
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, ctx.maxPixelRatio));
       if ("outputColorSpace" in renderer && THREE.SRGBColorSpace) {
         renderer.outputColorSpace = THREE.SRGBColorSpace;
       } else if ("outputEncoding" in renderer && THREE.sRGBEncoding) {
@@ -217,6 +226,7 @@
       buildPlayers();
       buildCardSets();
       setSkin(ctx.skinName);
+      setPerformance(ctx.performanceMode);
       if (USE_GLTF_AVATARS) {
         loadHumanModel();
       }
@@ -239,8 +249,8 @@
         const topSpot = new THREE.SpotLight(0xffb444, 4.8, 50, 0.65, 0.8, 1.2);
         topSpot.position.set(0, 10, 0); // 위치를 중앙 위로 이동
         topSpot.castShadow = true;
-        topSpot.shadow.mapSize.width = 1024;
-        topSpot.shadow.mapSize.height = 1024;
+        topSpot.shadow.mapSize.width = 512;
+        topSpot.shadow.mapSize.height = 512;
         topSpot.shadow.bias = -0.0005;
         topSpot.shadow.radius = 4;
         topSpot.shadow.camera.near = 1;
@@ -265,7 +275,7 @@
     }
   
     function buildAtmosphere() {
-      const count = 300;
+      const count = 100;
       const positions = new Float32Array(count * 3);
       const basePositions = new Float32Array(count * 3);
       const phases = new Float32Array(count);
@@ -305,11 +315,20 @@
     }
   
     function buildRoom() {
+      const roomMeshes = [];
+      const registerRoomMesh = (mesh) => {
+        if (mesh && mesh.isMesh) {
+          roomMeshes.push(mesh);
+        }
+        return mesh;
+      };
+
       const floorMat = new THREE.MeshStandardMaterial({ color: COLOR.floor, roughness: 0.96, metalness: 0.04 });
       const floor = new THREE.Mesh(
-        new THREE.CircleGeometry(18, 56),
+        new THREE.CircleGeometry(18, 28),
         floorMat
       );
+      registerRoomMesh(floor);
       floor.rotation.x = -Math.PI / 2;
       floor.receiveShadow = true;
       ctx.scene.add(floor);
@@ -319,6 +338,7 @@
         new THREE.PlaneGeometry(30, 12),
         wallMat
       );
+      registerRoomMesh(backWall);
       backWall.position.set(0, 5.4, -11);
       ctx.scene.add(backWall);
   
@@ -333,12 +353,14 @@
       });
   
       const barCounter = new THREE.Mesh(new THREE.BoxGeometry(11.5, 1.36, 1.48), woodMat);
+      registerRoomMesh(barCounter);
       barCounter.position.set(0, 0.72, -9.65);
       barCounter.castShadow = true;
       barCounter.receiveShadow = true;
       ctx.scene.add(barCounter);
   
       const counterTop = new THREE.Mesh(new THREE.BoxGeometry(11.9, 0.14, 1.64), brassMat);
+      registerRoomMesh(counterTop);
       counterTop.position.set(0, 1.47, -9.65);
       counterTop.castShadow = true;
       counterTop.receiveShadow = true;
@@ -346,6 +368,7 @@
   
       for (let s = 0; s < 3; s += 1) {
         const shelf = new THREE.Mesh(new THREE.BoxGeometry(9.4, 0.12, 0.54), woodMat);
+        registerRoomMesh(shelf);
         shelf.position.set(0, 2.02 + s * 1.02, -10.82);
         shelf.castShadow = true;
         shelf.receiveShadow = true;
@@ -357,13 +380,14 @@
         for (let i = 0; i < 14; i += 1) {
           const h = 0.26 + (i % 3) * 0.06;
           const bottle = new THREE.Mesh(
-            new THREE.CylinderGeometry(0.06, 0.07, h, 14),
+            new THREE.CylinderGeometry(0.06, 0.07, h, 8),
             new THREE.MeshStandardMaterial({
               color: bottlePalette[(row + i) % bottlePalette.length],
               roughness: 0.34,
               metalness: 0.08
             })
           );
+          registerRoomMesh(bottle);
           bottle.position.set(-4.55 + i * 0.7, 2.22 + row * 1.02 + h * 0.5, -10.76);
           bottle.castShadow = true;
           bottle.receiveShadow = true;
@@ -379,21 +403,25 @@
         metalness: 0.08
       });
       const neonPanel = new THREE.Mesh(new THREE.PlaneGeometry(4.4, 1.12), neonMat);
+      registerRoomMesh(neonPanel);
       neonPanel.position.set(0, 6.95, -10.92);
       ctx.scene.add(neonPanel);
   
-      const neonFrame = new THREE.Mesh(new THREE.TorusGeometry(2.35, 0.04, 8, 80), brassMat);
+      const neonFrame = new THREE.Mesh(new THREE.TorusGeometry(2.35, 0.04, 6, 36), brassMat);
+      registerRoomMesh(neonFrame);
       neonFrame.position.set(0, 6.95, -10.9);
       neonFrame.rotation.x = Math.PI / 2;
       ctx.scene.add(neonFrame);
   
       for (let i = -2; i <= 2; i += 1) {
-        const stoolLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.11, 0.74, 16), brassMat);
+        const stoolLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.11, 0.74, 8), brassMat);
+        registerRoomMesh(stoolLeg);
         stoolLeg.position.set(i * 1.5, 0.36, -8.45);
         stoolLeg.castShadow = true;
         ctx.scene.add(stoolLeg);
   
-        const stoolSeat = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.36, 0.1, 20), woodMat);
+        const stoolSeat = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.36, 0.1, 10), woodMat);
+        registerRoomMesh(stoolSeat);
         stoolSeat.position.set(i * 1.5, 0.78, -8.45);
         stoolSeat.castShadow = true;
         stoolSeat.receiveShadow = true;
@@ -402,60 +430,69 @@
   
       for (let i = -1; i <= 1; i += 1) {
         const pendantArm = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 1.8, 8), brassMat);
+        registerRoomMesh(pendantArm);
         pendantArm.position.set(i * 2.8, 8.2, -0.8);
         ctx.scene.add(pendantArm);
   
         const pendantShade = new THREE.Mesh(
-          new THREE.ConeGeometry(0.48, 0.7, 20),
+          new THREE.ConeGeometry(0.48, 0.7, 10),
           new THREE.MeshStandardMaterial({ color: 0x2c1c12, roughness: 0.62, metalness: 0.14 })
         );
+        registerRoomMesh(pendantShade);
         pendantShade.position.set(i * 2.8, 7.35, -0.8);
         pendantShade.rotation.x = Math.PI;
         pendantShade.castShadow = true;
         ctx.scene.add(pendantShade);
   
         const pendantBulb = new THREE.Mesh(
-          new THREE.SphereGeometry(0.09, 14, 14),
+          new THREE.SphereGeometry(0.09, 10, 10),
           new THREE.MeshStandardMaterial({ color: 0xffdc9f, emissive: 0xffc66d, emissiveIntensity: 1.2 })
         );
+        registerRoomMesh(pendantBulb);
         pendantBulb.position.set(i * 2.8, 7.06, -0.8);
         ctx.scene.add(pendantBulb);
       }
   
-      const sideTable = new THREE.Mesh(new THREE.CylinderGeometry(0.78, 0.86, 0.5, 24), woodMat);
+      const sideTable = new THREE.Mesh(new THREE.CylinderGeometry(0.78, 0.86, 0.5, 12), woodMat);
+      registerRoomMesh(sideTable);
       sideTable.position.set(6.4, 0.5, 2.2);
       sideTable.castShadow = true;
       sideTable.receiveShadow = true;
       ctx.scene.add(sideTable);
   
-      const whiskeyGlass = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.18, 0.28, 18), glassMat);
+      const whiskeyGlass = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.18, 0.28, 10), glassMat);
+      registerRoomMesh(whiskeyGlass);
       whiskeyGlass.position.set(6.1, 0.9, 2.1);
       ctx.scene.add(whiskeyGlass);
   
       const boothMat = new THREE.MeshStandardMaterial({ color: 0x2a1f22, roughness: 0.84, metalness: 0.08 });
       for (const side of [-1, 1]) {
         const boothBase = new THREE.Mesh(new THREE.BoxGeometry(2.8, 0.65, 1.45), boothMat);
+        registerRoomMesh(boothBase);
         boothBase.position.set(side * 8.15, 0.36, -3.25);
         boothBase.castShadow = true;
         boothBase.receiveShadow = true;
         ctx.scene.add(boothBase);
   
         const boothBack = new THREE.Mesh(new THREE.BoxGeometry(2.8, 1.2, 0.36), boothMat);
+        registerRoomMesh(boothBack);
         boothBack.position.set(side * 8.15, 0.98, -3.9);
         boothBack.castShadow = true;
         boothBack.receiveShadow = true;
         ctx.scene.add(boothBack);
   
-        const boothTable = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.58, 0.5, 22), woodMat);
+        const boothTable = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.58, 0.5, 12), woodMat);
+        registerRoomMesh(boothTable);
         boothTable.position.set(side * 6.75, 0.52, -3.22);
         boothTable.castShadow = true;
         boothTable.receiveShadow = true;
         ctx.scene.add(boothTable);
   
         const boothLamp = new THREE.Mesh(
-          new THREE.SphereGeometry(0.12, 14, 14),
+          new THREE.SphereGeometry(0.12, 10, 10),
           new THREE.MeshStandardMaterial({ color: 0xffd9a6, emissive: 0xffc16b, emissiveIntensity: 0.95 })
         );
+        registerRoomMesh(boothLamp);
         boothLamp.position.set(side * 6.75, 1.05, -3.25);
         ctx.scene.add(boothLamp);
       }
@@ -463,17 +500,19 @@
       for (let i = 0; i < 4; i += 1) {
         const silhouette = new THREE.Group();
         const body = new THREE.Mesh(
-          new THREE.CapsuleGeometry(0.23, 0.48, 5, 10),
+          new THREE.CapsuleGeometry(0.23, 0.48, 3, 6),
           new THREE.MeshStandardMaterial({ color: 0x1f2630, roughness: 0.85, metalness: 0.05 })
         );
+        registerRoomMesh(body);
         body.position.y = 0.34;
         body.castShadow = true;
         silhouette.add(body);
   
         const head = new THREE.Mesh(
-          new THREE.SphereGeometry(0.14, 14, 14),
+          new THREE.SphereGeometry(0.14, 10, 10),
           new THREE.MeshStandardMaterial({ color: 0x2a3340, roughness: 0.8, metalness: 0.04 })
         );
+        registerRoomMesh(head);
         head.position.y = 0.86;
         head.castShadow = true;
         silhouette.add(head);
@@ -488,6 +527,7 @@
           new THREE.BoxGeometry(1.9, 1.2, 0.08),
           new THREE.MeshStandardMaterial({ color: 0x7a5d3a, roughness: 0.5, metalness: 0.28 })
         );
+        registerRoomMesh(frame);
         frame.position.set(-4.3 + i * 4.3, 4.9, -10.92);
         ctx.scene.add(frame);
   
@@ -501,9 +541,15 @@
             metalness: 0.08
           })
         );
+        registerRoomMesh(artwork);
         artwork.position.set(-4.3 + i * 4.3, 4.9, -10.865);
         ctx.scene.add(artwork);
       }
+
+      roomMeshes.forEach((mesh) => {
+        mesh.castShadow = false;
+        mesh.receiveShadow = false;
+      });
   
       ctx.roomMaterials = {
         floor: floorMat,
@@ -632,19 +678,52 @@
         ctx.atmosphere.points.material.color.setHex(skin.spot);
       }
     }
+
+    function setPerformance(mode = "high") {
+      const resolvedMode = mode === "low" ? "low" : "high";
+      const lowMode = resolvedMode === "low";
+      ctx.performanceMode = resolvedMode;
+      ctx.maxPixelRatio = lowMode ? 1.5 : 2;
+      ctx.minFrameIntervalMs = lowMode ? 1000 / 30 : 1000 / 60;
+      ctx.atmosphereAnimate = true;
+
+      if (ctx.renderer) {
+        ctx.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, ctx.maxPixelRatio));
+      }
+
+      if (ctx.lights && ctx.lights.topSpot) {
+        const shadowSize = 512;
+        ctx.lights.topSpot.shadow.mapSize.width = shadowSize;
+        ctx.lights.topSpot.shadow.mapSize.height = shadowSize;
+        if (ctx.lights.topSpot.shadow.map) {
+          ctx.lights.topSpot.shadow.map.dispose();
+          ctx.lights.topSpot.shadow.map = null;
+        }
+        ctx.lights.topSpot.shadow.needsUpdate = true;
+      }
+
+      if (ctx.atmosphere && ctx.atmosphere.points) {
+        ctx.atmosphere.points.visible = true;
+      }
+
+      if (ctx.clock) {
+        ctx.clock.getDelta();
+      }
+      onResize();
+    }
   
     function addChipStack(x, z, count, color = 0xb63a3a, stripe = 0xe7d8c2) {
       const bodyMat = new THREE.MeshStandardMaterial({ color, roughness: 0.34, metalness: 0.3 });
       const stripeMat = new THREE.MeshStandardMaterial({ color: stripe, roughness: 0.32, metalness: 0.18 });
   
       for (let i = 0; i < count; i += 1) {
-        const chip = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.038, 22), bodyMat);
+        const chip = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.038, 12), bodyMat);
         chip.position.set(x, 1.325 + i * 0.039, z);
         chip.castShadow = true;
         chip.receiveShadow = true;
         ctx.scene.add(chip);
   
-        const ring = new THREE.Mesh(new THREE.TorusGeometry(0.085, 0.012, 8, 18), stripeMat);
+        const ring = new THREE.Mesh(new THREE.TorusGeometry(0.085, 0.012, 6, 8), stripeMat);
         ring.position.set(x, chip.position.y + 0.019, z);
         ring.rotation.x = Math.PI / 2;
         ctx.scene.add(ring);
@@ -818,7 +897,7 @@
         avatarAnchor.add(placeholder.group);
   
         const ring = new THREE.Mesh(
-          new THREE.TorusGeometry(0.65, 0.045, 8, 42),
+          new THREE.TorusGeometry(0.65, 0.045, 6, 28),
           new THREE.MeshStandardMaterial({
             color: COLOR.activeRing,
             transparent: true,
@@ -857,7 +936,7 @@
           depthTest: true
         });
         const timerSprite = new THREE.Sprite(timerSpriteMaterial);
-        timerSprite.position.set(0, 2.42, 0.18);
+        timerSprite.position.set(TURN_TIMER_OFFSET_X, TURN_TIMER_OFFSET_Y, TURN_TIMER_OFFSET_Z);
         timerSprite.scale.set(0.72, 0.72, 1);
         timerSprite.visible = false;
         root.add(timerSprite);
@@ -1250,10 +1329,11 @@
   
     function getSeatCardPosition(seatIndex, cardIndex, peeking = false) {
       if (seatIndex === 2) {
-        const xOffset = cardIndex === 0 ? -0.38 : 0.38;
-        // Keep peeked cards clearly above the felt/rim to avoid lower-edge clipping.
-        const y = peeking ? 1.62 : 1.32;
-        const z = peeking ? 4.56 : 4.02;
+        const xOffset = cardIndex === 0 ? -0.42 : 0.42;
+        const peekYOffset = peeking ? (cardIndex === 0 ? 0.06 : -0.06) : 0;
+        const y = peeking ? 1.68 + peekYOffset : 1.32;
+        const zBase = peeking ? 4.62 : 4.02;
+        const z = peeking ? zBase + (cardIndex === 0 ? 0.02 : -0.02) : zBase;
         return new THREE.Vector3(xOffset, y, z);
       }
   
@@ -1330,7 +1410,7 @@
     function createChipMesh(style) {
       const chip = new THREE.Group();
       const body = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.145, 0.145, 0.048, 24),
+        new THREE.CylinderGeometry(0.145, 0.145, 0.048, 12),
         new THREE.MeshStandardMaterial({ color: style.body, roughness: 0.33, metalness: 0.28 })
       );
       body.castShadow = true;
@@ -1338,7 +1418,7 @@
       chip.add(body);
   
       const ring = new THREE.Mesh(
-        new THREE.TorusGeometry(0.104, 0.014, 8, 20),
+        new THREE.TorusGeometry(0.104, 0.014, 6, 8),
         new THREE.MeshStandardMaterial({ color: style.stripe, roughness: 0.34, metalness: 0.14 })
       );
       ring.position.y = 0.019;
@@ -1906,13 +1986,21 @@
   
     function animate() {
       if (!ctx.initialized) return;
+      const now = (typeof performance !== "undefined" && performance.now)
+        ? performance.now()
+        : Date.now();
+      if (ctx.minFrameIntervalMs > 0 && now - ctx.lastFrameMs < ctx.minFrameIntervalMs) {
+        ctx.rafId = window.requestAnimationFrame(animate);
+        return;
+      }
+      ctx.lastFrameMs = now;
   
       const dt = ctx.clock.getDelta();
       ctx.time += dt;
   
       ctx.mixers.forEach((mixer) => mixer.update(dt));
   
-      if (ctx.atmosphere && ctx.atmosphere.points) {
+      if (ctx.atmosphere && ctx.atmosphere.points && ctx.atmosphereAnimate) {
         const { points, basePositions, phases } = ctx.atmosphere;
         const attr = points.geometry.getAttribute("position");
         const pos = attr.array;
@@ -1928,8 +2016,13 @@
       }
   
       if (ctx.lights) {
-        ctx.lights.topSpot.intensity = 4.8 + Math.sin(ctx.time * 0.55) * 0.24;
-        ctx.lights.barFill.intensity = 0.16 + Math.sin(ctx.time * 0.8 + 1.1) * 0.05;
+        if (ctx.performanceMode === "low") {
+          ctx.lights.topSpot.intensity = 4.6;
+          ctx.lights.barFill.intensity = 0.14;
+        } else {
+          ctx.lights.topSpot.intensity = 4.8 + Math.sin(ctx.time * 0.55) * 0.24;
+          ctx.lights.barFill.intensity = 0.16 + Math.sin(ctx.time * 0.8 + 1.1) * 0.05;
+        }
       }
   
       const move = 1 - Math.exp(-dt * 3.6);
@@ -2038,7 +2131,7 @@
             const timerOpacityTarget = entry.active ? 0.98 : 0.82;
             timerMaterial.opacity += (timerOpacityTarget - timerMaterial.opacity) * (1 - Math.exp(-dt * 10));
             const bob = entry.active ? Math.sin(ctx.time * 7 + index) * 0.03 : 0;
-            entry.timerSprite.position.y = 2.42 + bob;
+            entry.timerSprite.position.set(TURN_TIMER_OFFSET_X, TURN_TIMER_OFFSET_Y + bob, TURN_TIMER_OFFSET_Z);
             const targetScale = entry.active ? 0.76 : 0.72;
             entry.timerSprite.scale.x += (targetScale - entry.timerSprite.scale.x) * (1 - Math.exp(-dt * 8));
             entry.timerSprite.scale.y += (targetScale - entry.timerSprite.scale.y) * (1 - Math.exp(-dt * 8));
@@ -2062,6 +2155,7 @@
   
       ctx.camera.aspect = width / height;
       ctx.camera.updateProjectionMatrix();
+      ctx.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, ctx.maxPixelRatio));
       ctx.renderer.setSize(width, height, false);
     }
   
@@ -2076,6 +2170,7 @@
       setTableState,
       setPlayerState,
       setTurnTimer,
+      setPerformance,
       setSkin,
       throwCard,
       throwChips,

@@ -21,9 +21,76 @@
         <p class="home-copy">연속 핸드와 스테이지를 돌파하며 마지막까지 칩을 지키세요.</p>
         <div class="home-actions">
           <button class="home-btn primary" id="startGameBtn" type="button">Start Game</button>
-          <button class="home-btn" id="enterTableBtn" type="button">Enter Table</button>
+          <button class="home-btn" id="homeGuideBtn" type="button" aria-expanded="false" aria-controls="homeGuidePanel">How To Guide</button>
           <button class="home-btn" id="homeSoundBtn" type="button">Sound On</button>
         </div>
+        <section class="home-guide hidden" id="homeGuidePanel" aria-live="polite">
+          <div class="home-guide-head">
+            <div class="home-guide-title-wrap">
+              <span class="home-guide-kicker">BEGINNER QUICK GUIDE</span>
+              <h2 class="home-guide-title">게임 가이드</h2>
+            </div>
+            <button class="home-guide-close" id="homeGuideCloseBtn" type="button" aria-label="가이드 닫기">닫기</button>
+          </div>
+          <div class="home-guide-layout">
+            <article class="home-guide-card">
+              <h3>빠른 시작</h3>
+              <ol class="home-guide-steps">
+                <li><strong>Start Game</strong> 버튼으로 첫 핸드를 시작합니다.</li>
+                <li>내 턴에는 <strong>Fold / Check(Call) / Raise</strong> 중 하나를 선택합니다.</li>
+                <li><strong>Peek Cards</strong> 버튼(또는 P 키 홀드)으로 홀카드를 확인합니다.</li>
+                <li>NPC 3명을 모두 파산시키면 다음 스테이지로 진행됩니다.</li>
+              </ol>
+            </article>
+
+            <article class="home-guide-card">
+              <h3>핵심 룰</h3>
+              <ul class="home-guide-list">
+                <li>각 핸드는 프리플랍 → 플랍 → 턴 → 리버 → 쇼다운 순서입니다.</li>
+                <li>SB/BB는 핸드마다 시계 방향으로 이동합니다.</li>
+                <li>턴 타이머 종료 시 자동으로 폴드 처리됩니다.</li>
+                <li>최종 승부는 7장 중 가장 높은 5장 조합으로 결정됩니다.</li>
+              </ul>
+            </article>
+
+            <article class="home-guide-card">
+              <h3>조작 키</h3>
+              <div class="home-guide-key-grid">
+                <div class="home-guide-key-row"><kbd>F</kbd><span>Fold</span></div>
+                <div class="home-guide-key-row"><kbd>C</kbd><span>Check / Call</span></div>
+                <div class="home-guide-key-row"><kbd>R</kbd><span>Raise</span></div>
+                <div class="home-guide-key-row"><kbd>P</kbd><span>Peek (홀드)</span></div>
+                <div class="home-guide-key-row"><kbd>N</kbd><span>Next Hand</span></div>
+                <div class="home-guide-key-row"><kbd>H</kbd><span>Replay</span></div>
+              </div>
+            </article>
+
+            <article class="home-guide-card">
+              <h3>포커 족보 (높음 → 낮음)</h3>
+              <ol class="home-guide-rank-list">
+                <li>스트레이트 플러시</li>
+                <li>포카드</li>
+                <li>풀하우스</li>
+                <li>플러시</li>
+                <li>스트레이트</li>
+                <li>트리플</li>
+                <li>투페어</li>
+                <li>원페어</li>
+                <li>하이카드</li>
+              </ol>
+            </article>
+
+            <article class="home-guide-card home-guide-card-wide">
+              <h3>실전 팁</h3>
+              <ul class="home-guide-list">
+                <li>초반에는 무리한 올인보다 포지션과 콜 금액을 먼저 체크하세요.</li>
+                <li>상대 베팅 크기가 갑자기 커지면 강한 족보 가능성을 의심하세요.</li>
+                <li>미완성 드로우 카드만 보고 큰 배팅을 따라가면 손해가 커집니다.</li>
+                <li>칩이 줄어들면 레이즈 빈도를 낮추고 콜 범위를 좁혀 생존을 우선하세요.</li>
+              </ul>
+            </article>
+          </div>
+        </section>
       </div>
     </section>
     <main class="table-scene" id="tableScene">
@@ -51,6 +118,7 @@
               <option value="velvet">Velvet</option>
             </select>
           </label>
+          <button class="next-hand tertiary" id="performanceToggle" type="button">Performance High</button>
           <button class="next-hand tertiary" id="soundToggle" type="button">Sound On</button>
           <button class="next-hand secondary" id="replayBtn" disabled>Replay</button>
           <button class="next-hand" id="nextHandBtn" disabled>Next Hand</button>
@@ -111,6 +179,14 @@
           <section class="stage-banner" id="stageBanner" aria-live="polite">
             <div class="stage-banner-title" id="stageBannerTitle"></div>
             <div class="stage-banner-sub" id="stageBannerSub"></div>
+          </section>
+          <section class="game-over-modal hidden" id="gameOverModal" aria-live="assertive">
+            <div class="game-over-card">
+              <p class="game-over-kicker">RUN FAILED</p>
+              <h2 class="game-over-title" id="gameOverTitle">GAME OVER</h2>
+              <p class="game-over-sub" id="gameOverSub">칩을 모두 잃었습니다.</p>
+              <button class="next-hand secondary" id="restartRunBtn" type="button">Restart Run</button>
+            </div>
           </section>
           <section class="corner-cards-hud" id="cornerCardsHud" aria-live="polite">
             <div class="corner-cards-block">

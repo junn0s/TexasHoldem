@@ -5,7 +5,7 @@
   const TURN_TIME_MS = 30000;
   const NEXT_HAND_IDLE_TIMEOUT_MS = 10000;
   const NPC_MIN_THINK_MS = 2000;
-  const NPC_MAX_THINK_MS = 11000;
+  const NPC_MAX_THINK_MS = 4000;
   const HANDS_PER_LEVEL = 3;
   const BLIND_LEVELS = [
     { small: 10, big: 20 },
@@ -26,6 +26,7 @@
   const SKIN_STORAGE_KEY = "underground-holdem-skin";
   const TUTORIAL_STORAGE_KEY = "underground-holdem-tutorial-dismissed";
   const SOUND_STORAGE_KEY = "underground-holdem-sound-enabled";
+  const PERFORMANCE_STORAGE_KEY = "underground-holdem-performance-mode";
   const HOME_MUSIC_PLAYLIST = [
     "assets/audio/main.mp3",
     "assets/audio/main2.mp3",
@@ -102,7 +103,10 @@
     tutorialHidden: false,
     stageBannerTimer: null,
     autoNextHandTimeoutId: null,
-    homeVisible: true
+    homeVisible: true,
+    homeGuideVisible: false,
+    performanceMode: "high",
+    gameOver: false
   };
 
   const el = {
@@ -138,6 +142,7 @@
     inHandMeta: document.getElementById("inHandMeta"),
     inHandList: document.getElementById("inHandList"),
     skinSelect: document.getElementById("skinSelect"),
+    performanceToggle: document.getElementById("performanceToggle"),
     soundToggle: document.getElementById("soundToggle"),
     foldBtn: document.getElementById("foldBtn"),
     checkCallBtn: document.getElementById("checkCallBtn"),
@@ -147,8 +152,14 @@
     raiseAmount: document.getElementById("raiseAmount"),
     homeScreen: document.getElementById("homeScreen"),
     startGameBtn: document.getElementById("startGameBtn"),
-    enterTableBtn: document.getElementById("enterTableBtn"),
-    homeSoundBtn: document.getElementById("homeSoundBtn")
+    homeGuideBtn: document.getElementById("homeGuideBtn"),
+    homeGuidePanel: document.getElementById("homeGuidePanel"),
+    homeGuideCloseBtn: document.getElementById("homeGuideCloseBtn"),
+    homeSoundBtn: document.getElementById("homeSoundBtn"),
+    gameOverModal: document.getElementById("gameOverModal"),
+    gameOverTitle: document.getElementById("gameOverTitle"),
+    gameOverSub: document.getElementById("gameOverSub"),
+    restartRunBtn: document.getElementById("restartRunBtn")
   };
 
   const audio = {
@@ -321,12 +332,26 @@
     if (el.homeScreen) {
       el.homeScreen.classList.toggle("hidden", !state.homeVisible);
     }
+    if (!state.homeVisible) {
+      setHomeGuideVisible(false);
+    }
     document.body.classList.toggle("home-open", state.homeVisible);
     applyMusicForUiContext({ restart: prevVisible !== state.homeVisible });
   }
 
+  function setHomeGuideVisible(visible) {
+    state.homeGuideVisible = !!visible;
+    if (el.homeGuidePanel) {
+      el.homeGuidePanel.classList.toggle("hidden", !state.homeGuideVisible);
+    }
+    if (el.homeGuideBtn) {
+      el.homeGuideBtn.setAttribute("aria-expanded", String(state.homeGuideVisible));
+    }
+  }
+
   function startGameFromHome() {
     unlockAudio();
+    setHomeGuideVisible(false);
     setHomeVisibility(false);
     if (state.handId === 0 && state.handOver) {
       clearAutoNextHand();
@@ -335,6 +360,19 @@
       return;
     }
     render();
+  }
+
+  function setGameOverVisibility(visible, title = null, sub = null) {
+    if (!el.gameOverModal) return;
+    el.gameOverModal.classList.toggle("hidden", !visible);
+    if (visible) {
+      if (typeof title === "string" && el.gameOverTitle) {
+        el.gameOverTitle.textContent = title;
+      }
+      if (typeof sub === "string" && el.gameOverSub) {
+        el.gameOverSub.textContent = sub;
+      }
+    }
   }
 
   function setPlayerAction(player, text, tone = "") {
@@ -378,6 +416,75 @@
 
   function humanPlayer() {
     return state.players.find((player) => player.isHuman) || null;
+  }
+
+  function isHeroBusted() {
+    const hero = humanPlayer();
+    return !!hero && hero.chips <= 0;
+  }
+
+  function triggerGameOver() {
+    if (state.gameOver) return;
+
+    const stageProfile = currentStageProfile();
+    const stageText = `Stage ${state.tournamentStage + 1} · ${stageProfile.name}`;
+    const handText = state.handId > 0 ? `Hand #${state.handId}` : "Hand #0";
+    const sub = `${stageText} / ${handText} 종료 · 칩을 모두 잃었습니다.`;
+
+    state.gameOver = true;
+    clearAutoNextHand();
+    stopTurnTimer();
+    state.waitingForHuman = false;
+    state.actionLock = false;
+    state.handOver = true;
+    setPeek(false);
+    setDealerThrowing(false);
+    clearDealLayer();
+    setStatus("Game Over.", "Restart Run을 눌러 새 런을 시작하세요.");
+    setGameOverVisibility(true, "GAME OVER", sub);
+  }
+
+  function restartRunFromGameOver() {
+    clearAutoNextHand();
+    stopTurnTimer();
+    state.gameOver = false;
+    setGameOverVisibility(false);
+
+    resetTable();
+    state.handId = 0;
+    state.handOver = true;
+    state.waitingForHuman = false;
+    state.actionLock = false;
+    state.holePeek = false;
+    state.animatingDeal = false;
+    state.roundTransitioning = false;
+    state.autoRunoutInProgress = false;
+    state.replayInProgress = false;
+    state.replayEntryId = null;
+    state.pendingStageAdvance = false;
+    state.communityCards = [];
+    state.communityVisible = 0;
+    state.pot = 0;
+    state.stage = "idle";
+    state.currentBet = 0;
+    state.minRaise = BIG_BLIND;
+    state.activePlayerIndex = -1;
+    state.dealtHoleCounts = state.players.map(() => 0);
+    state.lastHandLog = [];
+    clearCurrentHandHistory();
+    setDealerThrowing(false);
+    clearDealLayer();
+
+    if (window.Poker3D && typeof window.Poker3D.resetForNewHand === "function") {
+      window.Poker3D.resetForNewHand();
+    }
+
+    render();
+    if (el.replayBtn) {
+      el.replayBtn.disabled = true;
+    }
+    el.nextHandBtn.disabled = true;
+    startHand();
   }
 
   function npcPlayers() {
@@ -493,21 +600,48 @@
     }
   }
 
+  function applyPerformanceMode(mode, { persist = true } = {}) {
+    const nextMode = mode === "low" ? "low" : "high";
+    state.performanceMode = nextMode;
+    if (window.Poker3D && typeof window.Poker3D.setPerformance === "function") {
+      window.Poker3D.setPerformance(nextMode);
+    }
+    if (persist) {
+      try {
+        window.localStorage.setItem(PERFORMANCE_STORAGE_KEY, nextMode);
+      } catch (error) {
+        // Ignore storage restrictions.
+      }
+    }
+    setPerformanceToggleUi();
+  }
+
   function loadPreferences() {
     let storedSkin = "classic";
     let tutorialHidden = false;
     let soundEnabled = true;
+    let storedPerformance = "high";
     try {
       storedSkin = window.localStorage.getItem(SKIN_STORAGE_KEY) || "classic";
       tutorialHidden = window.localStorage.getItem(TUTORIAL_STORAGE_KEY) === "1";
       soundEnabled = window.localStorage.getItem(SOUND_STORAGE_KEY) !== "0";
+      storedPerformance = window.localStorage.getItem(PERFORMANCE_STORAGE_KEY) || "high";
     } catch (error) {
       // Ignore storage restrictions.
     }
     applySkin(storedSkin);
+    applyPerformanceMode(storedPerformance, { persist: false });
     setTutorialVisibility(tutorialHidden);
     audio.enabled = soundEnabled;
     setSoundToggleUi();
+  }
+
+  function setPerformanceToggleUi() {
+    const isLow = state.performanceMode === "low";
+    if (el.performanceToggle) {
+      el.performanceToggle.textContent = isLow ? "Performance Low" : "Performance High";
+      el.performanceToggle.classList.toggle("off", isLow);
+    }
   }
 
   function setSoundToggleUi() {
@@ -1000,7 +1134,7 @@
   }
 
   function canAutoStartNextHand() {
-    return state.handOver && !state.replayInProgress;
+    return state.handOver && !state.replayInProgress && !state.gameOver;
   }
 
   function scheduleAutoNextHand() {
@@ -1258,6 +1392,11 @@
 
   async function startHand() {
     clearAutoNextHand();
+    if (state.gameOver || isHeroBusted()) {
+      triggerGameOver();
+      render();
+      return;
+    }
     state.handId += 1;
     const handId = state.handId;
     stopTurnTimer();
@@ -1283,14 +1422,6 @@
     clearDealLayer();
     if (stageIntro) {
       logHistory(stageIntro, "stage");
-    }
-
-    const alive = playersStillAlive();
-    if (alive.length <= 1) {
-      resetTable();
-      applyBlindLevel(currentBlindLevelForHand(state.handId));
-      setStatus("Run reset.", "You busted or table ended. Stage returns to 1.");
-      logHistory("Run reset: all players re-bought to 1,500 chips (Stage 1).", "stage");
     }
 
     state.dealerIndex = nextIndex(state.dealerIndex, (p) => p.chips > 0);
@@ -1432,7 +1563,7 @@
   }
 
   function humanAction(action, raiseTo = null) {
-    if (state.handOver || state.actionLock || state.animatingDeal || state.roundTransitioning) return;
+    if (state.gameOver || state.handOver || state.actionLock || state.animatingDeal || state.roundTransitioning) return;
     const player = state.players[state.activePlayerIndex];
     if (!player || !player.isHuman || !state.waitingForHuman) return;
 
@@ -2001,10 +2132,20 @@
     state.replayEntryId = null;
     state.communityVisible = state.communityCards.length;
     state.dealtHoleCounts = state.players.map((player) => player.hand.length);
-    queueTournamentAdvanceIfCleared();
     state.lastHandLog = state.currentHandLog.slice();
     setDealerThrowing(false);
     clearDealLayer();
+
+    if (isHeroBusted()) {
+      if (el.replayBtn) {
+        el.replayBtn.disabled = state.lastHandLog.length === 0;
+      }
+      triggerGameOver();
+      render();
+      return;
+    }
+
+    queueTournamentAdvanceIfCleared();
     el.nextHandBtn.disabled = false;
     if (el.replayBtn) {
       el.replayBtn.disabled = state.lastHandLog.length === 0;
@@ -2301,6 +2442,7 @@
 
   function render() {
     setSoundToggleUi();
+    setPerformanceToggleUi();
     if (el.stageInfo) {
       const stageProfile = currentStageProfile();
       const pending = state.pendingStageAdvance ? " · CLEAR" : "";
@@ -2329,10 +2471,11 @@
     renderShowdownPanel();
     renderControls();
     sync3DTableState();
+    setGameOverVisibility(state.gameOver);
 
-    el.nextHandBtn.disabled = !state.handOver || state.replayInProgress;
+    el.nextHandBtn.disabled = state.gameOver || !state.handOver || state.replayInProgress;
     if (el.replayBtn) {
-      el.replayBtn.disabled = !state.handOver || state.replayInProgress || state.lastHandLog.length === 0;
+      el.replayBtn.disabled = state.gameOver || !state.handOver || state.replayInProgress || state.lastHandLog.length === 0;
     }
   }
 
@@ -2572,7 +2715,7 @@
     const human = humanIndex >= 0 ? state.players[humanIndex] : null;
     if (!human) return;
 
-    const actionBlocked = state.animatingDeal || state.roundTransitioning || state.replayInProgress;
+    const actionBlocked = state.gameOver || state.animatingDeal || state.roundTransitioning || state.replayInProgress;
     const yourTurn = !state.handOver && state.waitingForHuman && !actionBlocked;
     const dealt = state.dealtHoleCounts[humanIndex] || 0;
     const canPeek = !state.handOver && !human.folded && human.hand.length === 2 && dealt >= 2 && !actionBlocked;
@@ -2645,6 +2788,7 @@
 
   function bindEvents() {
     el.nextHandBtn.addEventListener("click", () => {
+      if (state.gameOver) return;
       clearAutoNextHand();
       el.nextHandBtn.disabled = true;
       startHand();
@@ -2681,23 +2825,39 @@
       });
     }
 
+    if (el.performanceToggle) {
+      el.performanceToggle.addEventListener("click", () => {
+        applyPerformanceMode(state.performanceMode === "low" ? "high" : "low");
+      });
+    }
+
     if (el.startGameBtn) {
       el.startGameBtn.addEventListener("click", () => {
         startGameFromHome();
       });
     }
 
-    if (el.enterTableBtn) {
-      el.enterTableBtn.addEventListener("click", () => {
-        unlockAudio();
-        setHomeVisibility(false);
-        render();
+    if (el.homeGuideBtn) {
+      el.homeGuideBtn.addEventListener("click", () => {
+        setHomeGuideVisible(!state.homeGuideVisible);
+      });
+    }
+
+    if (el.homeGuideCloseBtn) {
+      el.homeGuideCloseBtn.addEventListener("click", () => {
+        setHomeGuideVisible(false);
       });
     }
 
     if (el.homeSoundBtn) {
       el.homeSoundBtn.addEventListener("click", () => {
         setAudioEnabled(!audio.enabled);
+      });
+    }
+
+    if (el.restartRunBtn) {
+      el.restartRunBtn.addEventListener("click", () => {
+        restartRunFromGameOver();
       });
     }
 
@@ -2749,7 +2909,17 @@
 
       const key = event.key.toLowerCase();
       if (state.homeVisible) {
-        if ((key === "enter" || key === " ") && el.startGameBtn) {
+        if (key === "escape" && state.homeGuideVisible) {
+          event.preventDefault();
+          setHomeGuideVisible(false);
+          return;
+        }
+        if (key === "g" && el.homeGuideBtn) {
+          event.preventDefault();
+          el.homeGuideBtn.click();
+          return;
+        }
+        if ((key === "enter" || key === " ") && el.startGameBtn && !state.homeGuideVisible && (tag === "body" || tag === "html" || tag === "")) {
           event.preventDefault();
           el.startGameBtn.click();
         }
@@ -2812,6 +2982,8 @@
     loadPreferences();
     initSeats();
     bindEvents();
+    setHomeGuideVisible(false);
+    setGameOverVisibility(false);
     setupHomeScreenArt();
 
     if (mode3D) {
