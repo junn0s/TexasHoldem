@@ -16,10 +16,10 @@
     { small: 100, big: 200 }
   ];
   const TOURNAMENT_STAGES = [
-    { name: "Back Room", npcChips: 1500, bonus: 0, botAggro: 1.0 },
-    { name: "Main Floor", npcChips: 2200, bonus: 220, botAggro: 1.14 },
-    { name: "VIP Lounge", npcChips: 3200, bonus: 340, botAggro: 1.28 },
-    { name: "Boss Table", npcChips: 4600, bonus: 520, botAggro: 1.42 }
+    { name: "Back Room", npcChips: 1500, bonus: 0, botAggro: 0.68 },
+    { name: "Main Floor", npcChips: 2200, bonus: 220, botAggro: 0.94 },
+    { name: "VIP Lounge", npcChips: 3200, bonus: 340, botAggro: 1.16 },
+    { name: "Boss Table", npcChips: 4600, bonus: 520, botAggro: 1.38 }
   ];
   const HISTORY_MAX = 180;
   const HISTORY_PREVIEW = 22;
@@ -260,6 +260,191 @@
 
   function drawCard() {
     return state.deck.pop();
+  }
+
+  function findCardIndexInDeck(deck, rank, suit) {
+    for (let i = deck.length - 1; i >= 0; i -= 1) {
+      const card = deck[i];
+      if (card.rank === rank && card.suit === suit) {
+        return i;
+      }
+    }
+    return -1;
+  }
+
+  function takeSpecificDeckCards(deck, firstSpec, secondSpec) {
+    const firstIndex = findCardIndexInDeck(deck, firstSpec.rank, firstSpec.suit);
+    const secondIndex = findCardIndexInDeck(deck, secondSpec.rank, secondSpec.suit);
+    if (firstIndex < 0 || secondIndex < 0 || firstIndex === secondIndex) return null;
+
+    let firstCard;
+    let secondCard;
+    if (firstIndex > secondIndex) {
+      firstCard = deck.splice(firstIndex, 1)[0];
+      secondCard = deck.splice(secondIndex, 1)[0];
+    } else {
+      secondCard = deck.splice(secondIndex, 1)[0];
+      firstCard = deck.splice(firstIndex, 1)[0];
+    }
+    return [firstCard, secondCard];
+  }
+
+  function buildHighPairAssist(deck) {
+    const ranks = shuffle([14, 13, 12, 11, 10, 9]);
+    for (const rank of ranks) {
+      const suits = shuffle(SUITS.slice());
+      const picked = takeSpecificDeckCards(
+        deck,
+        { rank, suit: suits[0] },
+        { rank, suit: suits[1] }
+      );
+      if (picked) return picked;
+    }
+    return null;
+  }
+
+  function buildSuitedBroadwayAssist(deck) {
+    const combos = shuffle([
+      [14, 13],
+      [14, 12],
+      [14, 11],
+      [14, 10],
+      [13, 12],
+      [13, 11]
+    ]);
+    for (const [high, low] of combos) {
+      const suits = shuffle(SUITS.slice());
+      for (const suit of suits) {
+        const picked = takeSpecificDeckCards(
+          deck,
+          { rank: high, suit },
+          { rank: low, suit }
+        );
+        if (picked) return picked;
+      }
+    }
+    return null;
+  }
+
+  function buildOffsuitBroadwayAssist(deck) {
+    const combos = shuffle([
+      [14, 13],
+      [14, 12],
+      [13, 12],
+      [14, 11],
+      [13, 11]
+    ]);
+    for (const [high, low] of combos) {
+      const suitsA = shuffle(SUITS.slice());
+      const suitsB = shuffle(SUITS.slice());
+      for (const suitA of suitsA) {
+        for (const suitB of suitsB) {
+          if (suitA === suitB) continue;
+          const picked = takeSpecificDeckCards(
+            deck,
+            { rank: high, suit: suitA },
+            { rank: low, suit: suitB }
+          );
+          if (picked) return picked;
+        }
+      }
+    }
+    return null;
+  }
+
+  function buildAceXSuitedAssist(deck) {
+    const kickers = shuffle([10, 9, 8, 7]);
+    for (const kicker of kickers) {
+      const suits = shuffle(SUITS.slice());
+      for (const suit of suits) {
+        const picked = takeSpecificDeckCards(
+          deck,
+          { rank: 14, suit },
+          { rank: kicker, suit }
+        );
+        if (picked) return picked;
+      }
+    }
+    return null;
+  }
+
+  function buildConnectorAssist(deck) {
+    const combos = shuffle([
+      [11, 10],
+      [10, 9],
+      [9, 8],
+      [8, 7]
+    ]);
+    for (const [high, low] of combos) {
+      if (Math.random() < 0.45) {
+        const suits = shuffle(SUITS.slice());
+        for (const suit of suits) {
+          const suitedPicked = takeSpecificDeckCards(
+            deck,
+            { rank: high, suit },
+            { rank: low, suit }
+          );
+          if (suitedPicked) return suitedPicked;
+        }
+      }
+
+      const suitsA = shuffle(SUITS.slice());
+      const suitsB = shuffle(SUITS.slice());
+      for (const suitA of suitsA) {
+        for (const suitB of suitsB) {
+          if (suitA === suitB) continue;
+          const picked = takeSpecificDeckCards(
+            deck,
+            { rank: high, suit: suitA },
+            { rank: low, suit: suitB }
+          );
+          if (picked) return picked;
+        }
+      }
+    }
+    return null;
+  }
+
+  function pickStageOneHeroAssistCards(deck) {
+    if (state.tournamentStage !== 0) return null;
+
+    // Stage 1 only: mostly favorable, but not guaranteed every hand.
+    if (Math.random() > 0.78) return null;
+
+    const roll = Math.random();
+    let builders = [];
+    if (roll < 0.34) {
+      builders = [
+        buildHighPairAssist,
+        buildSuitedBroadwayAssist,
+        buildOffsuitBroadwayAssist,
+        buildAceXSuitedAssist,
+        buildConnectorAssist
+      ];
+    } else if (roll < 0.72) {
+      builders = [
+        buildSuitedBroadwayAssist,
+        buildOffsuitBroadwayAssist,
+        buildHighPairAssist,
+        buildAceXSuitedAssist,
+        buildConnectorAssist
+      ];
+    } else {
+      builders = [
+        buildOffsuitBroadwayAssist,
+        buildAceXSuitedAssist,
+        buildSuitedBroadwayAssist,
+        buildConnectorAssist,
+        buildHighPairAssist
+      ];
+    }
+
+    for (const builder of builders) {
+      const picked = builder(deck);
+      if (picked) return picked;
+    }
+
+    return null;
   }
 
   function nextIndex(from, predicate) {
@@ -1443,10 +1628,19 @@
     }
 
     state.deck = shuffle(buildDeck());
+    const hero = humanPlayer();
+    const heroAssistCards = hero && !hero.folded ? pickStageOneHeroAssistCards(state.deck) : null;
 
     for (let i = 0; i < 2; i += 1) {
       state.players.forEach((player) => {
         if (!player.folded) {
+          if (heroAssistCards && player.isHuman) {
+            const assisted = heroAssistCards[player.hand.length];
+            if (assisted) {
+              player.hand.push(assisted);
+              return;
+            }
+          }
           player.hand.push(drawCard());
         }
       });
@@ -1584,20 +1778,22 @@
     const toCall = Math.max(0, state.currentBet - player.currentBet);
     const strength = estimateStrength(player);
     const roll = Math.random();
-    const aggro = currentStageProfile().botAggro || 1;
-    const aggroDelta = Math.max(0, aggro - 1);
+    const aggro = clamp(currentStageProfile().botAggro || 1, 0.55, 2.1);
+    const aggroOffset = aggro - 1;
 
     if (toCall > 0) {
-      const weakPreflopFold = clamp(0.72 - aggroDelta * 0.24, 0.36, 0.72);
-      const weakPostflopFold = clamp(0.55 - aggroDelta * 0.22, 0.24, 0.55);
-      const raiseChanceCalled = clamp(0.58 + aggroDelta * 0.24, 0.58, 0.9);
-      const raiseStrengthCalled = 0.76 - aggroDelta * 0.08;
+      const foldStrengthPreflop = clamp(0.42 - aggroOffset * 0.12, 0.24, 0.56);
+      const foldStrengthPostflop = clamp(0.3 - aggroOffset * 0.1, 0.14, 0.46);
+      const weakPreflopFold = clamp(0.72 - aggroOffset * 0.35, 0.22, 0.9);
+      const weakPostflopFold = clamp(0.55 - aggroOffset * 0.32, 0.16, 0.8);
+      const raiseChanceCalled = clamp(0.58 + aggroOffset * 0.34, 0.2, 0.92);
+      const raiseStrengthCalled = clamp(0.76 - aggroOffset * 0.16, 0.5, 0.9);
 
-      if (state.stage === "preflop" && strength < 0.42 && roll < weakPreflopFold) {
+      if (state.stage === "preflop" && strength < foldStrengthPreflop && roll < weakPreflopFold) {
         applyAction(player, "fold");
         return;
       }
-      if (strength < 0.3 && roll < weakPostflopFold) {
+      if (strength < foldStrengthPostflop && roll < weakPostflopFold) {
         applyAction(player, "fold");
         return;
       }
@@ -1609,8 +1805,8 @@
       return;
     }
 
-    const raiseStrengthFree = 0.68 - aggroDelta * 0.1;
-    const raiseChanceFree = clamp(0.54 + aggroDelta * 0.22, 0.54, 0.88);
+    const raiseStrengthFree = clamp(0.68 - aggroOffset * 0.18, 0.42, 0.86);
+    const raiseChanceFree = clamp(0.54 + aggroOffset * 0.32, 0.18, 0.9);
     if (strength > raiseStrengthFree && player.chips > state.bigBlind && roll < raiseChanceFree) {
       applyAction(player, "raise", botRaiseTarget(player, strength));
       return;
@@ -1624,10 +1820,14 @@
     if (maxTotal <= state.currentBet) return state.currentBet;
 
     const minTotal = state.currentBet === 0 ? state.bigBlind : state.currentBet + state.minRaise;
-    let target = state.currentBet + Math.max(state.bigBlind, Math.round((state.pot * (0.3 + strength)) / state.bigBlind) * state.bigBlind);
+    const aggro = clamp(currentStageProfile().botAggro || 1, 0.55, 2.1);
+    const aggroOffset = aggro - 1;
+    const potPressure = clamp(0.24 + strength * 0.72 + aggroOffset * 0.22, 0.18, 1.25);
+    let target = state.currentBet + Math.max(state.bigBlind, Math.round((state.pot * potPressure) / state.bigBlind) * state.bigBlind);
 
     if (state.currentBet === 0) {
-      target = Math.max(target, state.bigBlind * 2);
+      const openingSize = aggro < 0.9 ? state.bigBlind : state.bigBlind * 2;
+      target = Math.max(target, openingSize);
     }
 
     target = Math.max(minTotal, Math.min(target, maxTotal));

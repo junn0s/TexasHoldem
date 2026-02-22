@@ -107,9 +107,27 @@
     };
   
     const TURN_TIMER_DEFAULT_MS = 30000;
-    const TURN_TIMER_OFFSET_X = 0.92;
-    const TURN_TIMER_OFFSET_Y = 2.16;
-    const TURN_TIMER_OFFSET_Z = 0.18;
+    const TURN_TIMER_HERO_OFFSET_X = 0;
+    const TURN_TIMER_HERO_OFFSET_Y = 2.42;
+    const TURN_TIMER_HERO_OFFSET_Z = 0.18;
+    const TURN_TIMER_NPC_OFFSET_X = 0;
+    const TURN_TIMER_NPC_OFFSET_Y = 2.42;
+    const TURN_TIMER_NPC_OFFSET_Z = 0.18;
+
+    function timerOffsetFor(isHuman) {
+      if (isHuman) {
+        return {
+          x: TURN_TIMER_HERO_OFFSET_X,
+          y: TURN_TIMER_HERO_OFFSET_Y,
+          z: TURN_TIMER_HERO_OFFSET_Z
+        };
+      }
+      return {
+        x: TURN_TIMER_NPC_OFFSET_X,
+        y: TURN_TIMER_NPC_OFFSET_Y,
+        z: TURN_TIMER_NPC_OFFSET_Z
+      };
+    }
   
     const ctx = {
       initialized: false,
@@ -936,7 +954,8 @@
           depthTest: true
         });
         const timerSprite = new THREE.Sprite(timerSpriteMaterial);
-        timerSprite.position.set(TURN_TIMER_OFFSET_X, TURN_TIMER_OFFSET_Y, TURN_TIMER_OFFSET_Z);
+        const timerOffset = timerOffsetFor(isHuman);
+        timerSprite.position.set(timerOffset.x, timerOffset.y, timerOffset.z);
         timerSprite.scale.set(0.72, 0.72, 1);
         timerSprite.visible = false;
         root.add(timerSprite);
@@ -1330,10 +1349,10 @@
     function getSeatCardPosition(seatIndex, cardIndex, peeking = false) {
       if (seatIndex === 2) {
         const xOffset = cardIndex === 0 ? -0.42 : 0.42;
-        const peekYOffset = peeking ? (cardIndex === 0 ? 0.06 : -0.06) : 0;
+        const peekYOffset = peeking ? (cardIndex === 0 ? -0.06 : 0.06) : 0;
         const y = peeking ? 1.68 + peekYOffset : 1.32;
         const zBase = peeking ? 4.62 : 4.02;
-        const z = peeking ? zBase + (cardIndex === 0 ? 0.02 : -0.02) : zBase;
+        const z = peeking ? zBase + (cardIndex === 0 ? -0.02 : 0.02) : zBase;
         return new THREE.Vector3(xOffset, y, z);
       }
   
@@ -2131,7 +2150,8 @@
             const timerOpacityTarget = entry.active ? 0.98 : 0.82;
             timerMaterial.opacity += (timerOpacityTarget - timerMaterial.opacity) * (1 - Math.exp(-dt * 10));
             const bob = entry.active ? Math.sin(ctx.time * 7 + index) * 0.03 : 0;
-            entry.timerSprite.position.set(TURN_TIMER_OFFSET_X, TURN_TIMER_OFFSET_Y + bob, TURN_TIMER_OFFSET_Z);
+            const timerOffset = timerOffsetFor(entry.isHuman);
+            entry.timerSprite.position.set(timerOffset.x, timerOffset.y + bob, timerOffset.z);
             const targetScale = entry.active ? 0.76 : 0.72;
             entry.timerSprite.scale.x += (targetScale - entry.timerSprite.scale.x) * (1 - Math.exp(-dt * 8));
             entry.timerSprite.scale.y += (targetScale - entry.timerSprite.scale.y) * (1 - Math.exp(-dt * 8));
