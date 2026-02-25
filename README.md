@@ -1,42 +1,28 @@
 # Underground Hold'em
 
-프로미넌스 포커 무드로 바이브 코딩해 만든 3D 텍사스 홀덤 웹 게임입니다.
+3D 텍사스 홀덤 웹 게임.
+
+## 게임 화면
+
+![Underground Hold'em Gameplay](image/poker.png)
 
 ## 플레이 주소
 
-- https://texasholdem.freefree9758.workers.dev/
+- [https://texasholdem.freefree9758.workers.dev/](https://texasholdem.freefree9758.workers.dev/)
 
-## 어떤 게임인가?
-
-- 4인 노리밋 홀덤: `You`(플레이어) + NPC 3명
-- 블라인드/딜러 버튼이 매 핸드마다 순환
-- 프리플랍 → 플랍 → 턴 → 리버 → 쇼다운 진행
-- 3D 딜러 카드 딜링, 칩 투척, 액션/타이머 UI
-- `Peek Cards`로 내 홀카드 확인 연출
-- 스테이지형 진행(상대를 모두 파산시키면 다음 스테이지)
-
-## 어떻게 게임하나?
+## 빠른 가이드
 
 1. 홈 화면에서 `Start Game` 클릭
-2. 내 턴에 액션 선택
-3. `Fold`, `Check/Call`, `Raise To` 중 하나를 사용
-4. `Peek Cards` 버튼(또는 `P` 홀드)으로 내 카드 확인
-5. 한 핸드 종료 후 다음 핸드로 자동 진행(또는 버튼으로 진행)
-6. 상대 3명을 모두 탈락시키면 다음 스테이지로 진입
+2. 내 턴에 `Fold / Check(Call) / Raise` 중 선택
+3. `Peek Cards`(또는 `P` 홀드)로 내 카드 확인
+4. 아이템은 내 슬롯 클릭으로 사용, `Shift+클릭`/`우클릭`으로 판매
+5. NPC 3명을 파산시키면 스테이지 클리어
 
 ## 조작 키
 
 - `F`: Fold
 - `C`: Check / Call
 - `R`: Raise
-- `P`: Peek Cards (누르고 있는 동안)
+- `P`: Peek Cards (홀드)
 - `N`: Next Hand
 - `H`: Replay
-
-## 규칙/진행 포인트
-
-- 스몰 블라인드(SB), 빅 블라인드(BB) 적용
-- 턴 타이머 제한 시간 초과 시 자동 폴드
-- NPC는 최소 고민 시간 후 액션 수행
-- 쇼다운 시 각 플레이어 카드/결과 표시
-- 배경 음악은 홈/게임 화면별 플레이리스트로 순환 재생
