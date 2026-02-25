@@ -14,7 +14,7 @@
   </head>
   <body>
     <div class="app-bg"></div>
-    <section class="home-screen" id="homeScreen" aria-label="Home Screen">
+    <section class="home-screen home-art-ready" id="homeScreen" aria-label="Home Screen">
       <div class="home-shell">
         <p class="home-kicker">UNDERGROUND TABLE</p>
         <h1 class="home-title">NO-LIMIT HOLD'EM</h1>
@@ -24,6 +24,33 @@
           <button class="home-btn" id="homeGuideBtn" type="button" aria-expanded="false" aria-controls="homeGuidePanel">How To Guide</button>
           <button class="home-btn" id="homeSoundBtn" type="button">Sound On</button>
         </div>
+        <section class="home-meta-panel" aria-live="polite">
+          <div class="home-meta-head">
+            <span class="home-meta-label">Blood Coins</span>
+            <strong class="home-meta-value" id="metaBloodCoins">0</strong>
+          </div>
+          <p class="home-meta-run" id="metaRunCoins">현재 런 +0</p>
+          <div class="home-meta-grid">
+            <article class="home-meta-upgrade">
+              <h3>Starter Bankroll</h3>
+              <p id="metaBankrollValue">1,500 Chips</p>
+              <span id="metaBankrollLevel">Lv 0 / 3</span>
+              <button class="home-meta-upgrade-btn" id="upgradeBankrollBtn" type="button">Upgrade</button>
+            </article>
+            <article class="home-meta-upgrade">
+              <h3>Shop Reroll +1</h3>
+              <p id="metaRerollValue">+0 Rerolls</p>
+              <span id="metaRerollLevel">Lv 0 / 2</span>
+              <button class="home-meta-upgrade-btn" id="upgradeRerollBtn" type="button">Upgrade</button>
+            </article>
+            <article class="home-meta-upgrade">
+              <h3>Item Slot +1</h3>
+              <p id="metaSlotsValue">4 Slots</p>
+              <span id="metaSlotsLevel">Lv 0 / 3</span>
+              <button class="home-meta-upgrade-btn" id="upgradeSlotsBtn" type="button">Upgrade</button>
+            </article>
+          </div>
+        </section>
         <section class="home-guide hidden" id="homeGuidePanel" aria-live="polite">
           <div class="home-guide-head">
             <div class="home-guide-title-wrap">
@@ -120,6 +147,7 @@
           </label>
           <button class="next-hand tertiary" id="performanceToggle" type="button">Performance High</button>
           <button class="next-hand tertiary" id="soundToggle" type="button">Sound On</button>
+          <button class="next-hand tertiary" id="autoTuneBtn" type="button">Auto Tune</button>
           <button class="next-hand secondary" id="replayBtn" disabled>Replay</button>
           <button class="next-hand" id="nextHandBtn" disabled>Next Hand</button>
         </div>
@@ -185,7 +213,38 @@
               <p class="game-over-kicker">RUN FAILED</p>
               <h2 class="game-over-title" id="gameOverTitle">GAME OVER</h2>
               <p class="game-over-sub" id="gameOverSub">칩을 모두 잃었습니다.</p>
-              <button class="next-hand secondary" id="restartRunBtn" type="button">Restart Run</button>
+              <button class="next-hand secondary" id="restartRunBtn" type="button">Back To Lobby</button>
+            </div>
+          </section>
+          <section class="economy-modal hidden" id="lootModal" aria-live="assertive">
+            <div class="economy-card">
+              <p class="economy-kicker">BUST LOOT</p>
+              <h3 class="economy-title" id="lootTitle">Loot Found</h3>
+              <p class="economy-sub" id="lootSub"></p>
+              <div class="economy-item-row">
+                <span class="economy-item-icon" id="lootItemIcon">?</span>
+                <div class="economy-item-copy">
+                  <div class="economy-item-name" id="lootItemName"></div>
+                  <div class="economy-item-desc" id="lootItemDesc"></div>
+                  <div class="economy-item-effect" id="lootItemEffect"></div>
+                </div>
+              </div>
+              <div class="economy-actions">
+                <button class="next-hand secondary" id="lootEquipBtn" type="button">Equip</button>
+                <button class="next-hand tertiary" id="lootSellBtn" type="button">Sell</button>
+              </div>
+            </div>
+          </section>
+          <section class="economy-modal hidden" id="shopModal" aria-live="polite">
+            <div class="economy-card shop">
+              <p class="economy-kicker">BLACK MARKET</p>
+              <h3 class="economy-title">Relic Shop</h3>
+              <p class="economy-sub" id="shopMeta"></p>
+              <div class="shop-offers" id="shopOffers"></div>
+              <div class="economy-actions">
+                <button class="next-hand tertiary" id="shopRerollBtn" type="button">Reroll</button>
+                <button class="next-hand secondary" id="shopCloseBtn" type="button">Continue</button>
+              </div>
             </div>
           </section>
           <section class="corner-cards-hud" id="cornerCardsHud" aria-live="polite">
@@ -198,6 +257,13 @@
               <div class="corner-cards-row board" id="cornerBoardCards"></div>
             </div>
           </section>
+
+          <div class="item-overlay-layer" id="itemOverlayLayer" aria-hidden="true">
+            <div class="item-overlay-slot item-overlay-top" data-overlay-seat="0"></div>
+            <div class="item-overlay-slot item-overlay-right" data-overlay-seat="1"></div>
+            <div class="item-overlay-slot item-overlay-bottom" data-overlay-seat="2"></div>
+            <div class="item-overlay-slot item-overlay-left" data-overlay-seat="3"></div>
+          </div>
 
           <div class="seat seat-top" data-seat="0"></div>
           <div class="seat seat-right" data-seat="1"></div>
@@ -230,6 +296,7 @@
           <div class="raise-control">
             <label for="raiseRange">Raise</label>
             <input type="range" id="raiseRange" min="20" max="200" value="40" step="10" disabled />
+            <input type="number" id="raiseInput" min="20" max="200" step="10" value="40" disabled aria-label="Raise amount input" />
             <div class="raise-amount" id="raiseAmount">40</div>
             <button id="raiseBtn" disabled>Raise To</button>
           </div>
@@ -255,6 +322,7 @@
             <div class="avatar-arm arm-right"></div>
           </div>
         </div>
+        <div class="item-slots" aria-label="Equipped items"></div>
         <div class="cards"></div>
         <div class="seat-meta">
           <span class="chips"></span>
@@ -267,6 +335,10 @@
     <script src="vendor/three/three.min.js"></script>
     <script src="vendor/three/GLTFLoader.js"></script>
     <script src="vendor/three/SkeletonUtils.js"></script>
+    <script src="game-config/core.js"></script>
+    <script src="game-config/items.js"></script>
+    <script src="game-config/meta.js"></script>
+    <script src="game-modules/dom-refs.js"></script>
     <script src="poker3d3.js"></script>
     <script src="game.js"></script>
   </body>

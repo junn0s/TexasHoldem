@@ -1,66 +1,66 @@
 (() => {
-  const STARTING_CHIPS = 1500;
-  const SMALL_BLIND = 10;
-  const BIG_BLIND = 20;
-  const TURN_TIME_MS = 30000;
-  const NEXT_HAND_IDLE_TIMEOUT_MS = 10000;
-  const NPC_MIN_THINK_MS = 2000;
-  const NPC_MAX_THINK_MS = 4000;
-  const HANDS_PER_LEVEL = 3;
-  const BLIND_LEVELS = [
-    { small: 10, big: 20 },
-    { small: 15, big: 30 },
-    { small: 25, big: 50 },
-    { small: 40, big: 80 },
-    { small: 60, big: 120 },
-    { small: 100, big: 200 }
-  ];
-  const TOURNAMENT_STAGES = [
-    { name: "Back Room", npcChips: 1500, bonus: 0, botAggro: 0.68 },
-    { name: "Main Floor", npcChips: 2200, bonus: 220, botAggro: 0.94 },
-    { name: "VIP Lounge", npcChips: 3200, bonus: 340, botAggro: 1.16 },
-    { name: "Boss Table", npcChips: 4600, bonus: 520, botAggro: 1.38 }
-  ];
-  const HISTORY_MAX = 180;
-  const HISTORY_PREVIEW = 22;
-  const SKIN_STORAGE_KEY = "underground-holdem-skin";
-  const TUTORIAL_STORAGE_KEY = "underground-holdem-tutorial-dismissed";
-  const SOUND_STORAGE_KEY = "underground-holdem-sound-enabled";
-  const PERFORMANCE_STORAGE_KEY = "underground-holdem-performance-mode";
-  const HOME_MUSIC_PLAYLIST = [
-    "assets/audio/main.mp3",
-    "assets/audio/main2.mp3",
-    "assets/audio/main3.mp3",
-    "assets/audio/main4.mp3"
-  ];
-  const GAME_MUSIC_PLAYLIST = [
-    "assets/audio/game-jazz1.mp3",
-    "assets/audio/game-jazz2.mp3",
-    "assets/audio/game-mafia.mp3",
-    "assets/audio/game-funk.mp3"
-  ];
-  const HOME_ART_CANDIDATES = [
-    "assets/home/home-srceen.png",
-    "assets/home/home-screen.png",
-    "assets/home/home-screen.jpg",
-    "assets/home/home-screen.webp"
-  ];
+  const coreConfig = window.HoldemCoreConfig;
+  const itemConfig = window.HoldemItemConfig;
+  const metaConfig = window.HoldemMetaConfig;
 
-  const RANKS = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14];
-  const SUITS = ["S", "H", "D", "C"];
-  const SUIT_SYMBOL = { S: "♠", H: "♥", D: "♦", C: "♣" };
+  if (!coreConfig || !itemConfig || !metaConfig) {
+    throw new Error("Missing config script. Load game-config/core.js, game-config/items.js, and game-config/meta.js before game.js.");
+  }
 
-  const HAND_NAME = {
-    8: "Straight Flush",
-    7: "Four of a Kind",
-    6: "Full House",
-    5: "Flush",
-    4: "Straight",
-    3: "Three of a Kind",
-    2: "Two Pair",
-    1: "One Pair",
-    0: "High Card"
-  };
+  const {
+    STARTING_CHIPS,
+    SMALL_BLIND,
+    BIG_BLIND,
+    TURN_TIME_MS,
+    NEXT_HAND_IDLE_TIMEOUT_MS,
+    NPC_MIN_THINK_MS,
+    NPC_MAX_THINK_MS,
+    HANDS_PER_LEVEL,
+    BLIND_LEVELS,
+    TOURNAMENT_STAGES,
+    HISTORY_MAX,
+    HISTORY_PREVIEW,
+    SHOP_OFFER_COUNT,
+    SHOP_BASE_REROLL_COST,
+    SHOP_STAGE_REROLL_STEP,
+    SHOP_DEFAULT_REROLLS,
+    LOOT_SELL_MULTIPLIER,
+    LOOT_SELL_MIN,
+    SKIN_STORAGE_KEY,
+    TUTORIAL_STORAGE_KEY,
+    SOUND_STORAGE_KEY,
+    PERFORMANCE_STORAGE_KEY,
+    META_STORAGE_KEY,
+    HOME_MUSIC_PLAYLIST,
+    GAME_MUSIC_PLAYLIST,
+    HOME_ART_CANDIDATES,
+    RANKS,
+    SUITS,
+    SUIT_SYMBOL,
+    HAND_NAME
+  } = coreConfig;
+
+  const {
+    ITEM_DB,
+    HERO_STARTER_ITEMS,
+    ITEM_RARITY_ORDER,
+    BOT_ARCHETYPE_PROFILE,
+    NPC_ARCHETYPE_BY_NAME,
+    HERO_STARTER_DECK_MODS
+  } = itemConfig;
+
+  const {
+    BLOOD_COIN_STAGE_CLEAR_BASE,
+    BLOOD_COIN_STAGE_CLEAR_STEP,
+    BLOOD_COIN_HIGH_HAND_BONUS,
+    META_UPGRADE_TREE,
+    FEATURE_PHASE5_ECONOMY
+  } = metaConfig;
+
+  const createDomRefs = window.HoldemCreateDomRefs;
+  if (typeof createDomRefs !== "function") {
+    throw new Error("Missing DOM module. Load game-modules/dom-refs.js before game.js.");
+  }
 
   const state = {
     players: [],
@@ -106,61 +106,42 @@
     homeVisible: true,
     homeGuideVisible: false,
     performanceMode: "high",
-    gameOver: false
+    gameOver: false,
+    lootQueue: [],
+    currentLoot: null,
+    shopVisible: false,
+    shopOffers: [],
+    shopRerollsLeft: 0,
+    markedLensUsedThisHand: false,
+    markedLensReveal: null,
+    riverForesightReveal: null,
+    handWinnerIndices: [],
+    handBloodCoinAwarded: false,
+    runBloodCoins: 0,
+    meta: {
+      bloodCoins: 0,
+      upgrades: {
+        bankroll: 0,
+        reroll: 0,
+        slots: 0
+      }
+    },
+    lastSettledBloodCoins: 0,
+    balanceStats: {
+      handsPlayed: 0,
+      lastSummaryHand: 0,
+      lastWinRecordedHand: -1,
+      lastBannerHand: 0,
+      items: {}
+    },
+    balanceTuning: {
+      effectPctByItem: {},
+      procPctByItem: {},
+      lastAppliedStatsHand: 0
+    }
   };
 
-  const el = {
-    seats: Array.from(document.querySelectorAll(".seat")),
-    seatTemplate: document.getElementById("seatTemplate"),
-    dealLayer: document.getElementById("dealLayer"),
-    boardMiniLabel: document.getElementById("boardMiniLabel"),
-    boardMiniCards: document.getElementById("boardMiniCards"),
-    cornerCardsHud: document.getElementById("cornerCardsHud"),
-    cornerHeroCards: document.getElementById("cornerHeroCards"),
-    cornerBoardCards: document.getElementById("cornerBoardCards"),
-    dealerHands: document.querySelector(".dealer-hands"),
-    communityCards: document.getElementById("communityCards"),
-    potAmount: document.getElementById("potAmount"),
-    statusMain: document.getElementById("statusMain"),
-    statusSub: document.getElementById("statusSub"),
-    stageBanner: document.getElementById("stageBanner"),
-    stageBannerTitle: document.getElementById("stageBannerTitle"),
-    stageBannerSub: document.getElementById("stageBannerSub"),
-    showdownPanel: document.getElementById("showdownPanel"),
-    tableScene: document.getElementById("tableScene"),
-    nextHandBtn: document.getElementById("nextHandBtn"),
-    stageInfo: document.getElementById("stageInfo"),
-    blindInfo: document.getElementById("blindInfo"),
-    blindLevel: document.getElementById("blindLevel"),
-    blindPositions: document.getElementById("blindPositions"),
-    replayBtn: document.getElementById("replayBtn"),
-    tutorialPanel: document.getElementById("tutorialPanel"),
-    tutorialDismissBtn: document.getElementById("tutorialDismissBtn"),
-    tutorialToggleBtn: document.getElementById("tutorialToggleBtn"),
-    inHandReadout: document.getElementById("inHandReadout"),
-    inHandTitle: document.getElementById("inHandTitle"),
-    inHandMeta: document.getElementById("inHandMeta"),
-    inHandList: document.getElementById("inHandList"),
-    skinSelect: document.getElementById("skinSelect"),
-    performanceToggle: document.getElementById("performanceToggle"),
-    soundToggle: document.getElementById("soundToggle"),
-    foldBtn: document.getElementById("foldBtn"),
-    checkCallBtn: document.getElementById("checkCallBtn"),
-    peekBtn: document.getElementById("peekBtn"),
-    raiseBtn: document.getElementById("raiseBtn"),
-    raiseRange: document.getElementById("raiseRange"),
-    raiseAmount: document.getElementById("raiseAmount"),
-    homeScreen: document.getElementById("homeScreen"),
-    startGameBtn: document.getElementById("startGameBtn"),
-    homeGuideBtn: document.getElementById("homeGuideBtn"),
-    homeGuidePanel: document.getElementById("homeGuidePanel"),
-    homeGuideCloseBtn: document.getElementById("homeGuideCloseBtn"),
-    homeSoundBtn: document.getElementById("homeSoundBtn"),
-    gameOverModal: document.getElementById("gameOverModal"),
-    gameOverTitle: document.getElementById("gameOverTitle"),
-    gameOverSub: document.getElementById("gameOverSub"),
-    restartRunBtn: document.getElementById("restartRunBtn")
-  };
+  const el = createDomRefs(document);
 
   const audio = {
     context: null,
@@ -181,6 +162,177 @@
     mutedAutoplay: false
   };
 
+  function defaultMetaState() {
+    return {
+      bloodCoins: 0,
+      upgrades: {
+        bankroll: 0,
+        reroll: 0,
+        slots: 0
+      }
+    };
+  }
+
+  function normalizeMetaState(raw) {
+    const fallback = defaultMetaState();
+    const source = raw && typeof raw === "object" ? raw : {};
+    const upgrades = source.upgrades && typeof source.upgrades === "object" ? source.upgrades : {};
+
+    const normalized = {
+      bloodCoins: Math.max(0, Math.floor(Number(source.bloodCoins) || 0)),
+      upgrades: {
+        bankroll: 0,
+        reroll: 0,
+        slots: 0
+      }
+    };
+
+    Object.keys(META_UPGRADE_TREE).forEach((key) => {
+      const config = META_UPGRADE_TREE[key];
+      const level = Math.max(0, Math.floor(Number(upgrades[key]) || 0));
+      normalized.upgrades[key] = Math.min(config.maxLevel, level);
+    });
+
+    return {
+      bloodCoins: normalized.bloodCoins,
+      upgrades: {
+        bankroll: normalized.upgrades.bankroll ?? fallback.upgrades.bankroll,
+        reroll: normalized.upgrades.reroll ?? fallback.upgrades.reroll,
+        slots: normalized.upgrades.slots ?? fallback.upgrades.slots
+      }
+    };
+  }
+
+  function metaLevel(key) {
+    const config = META_UPGRADE_TREE[key];
+    if (!config) return 0;
+    const level = Number(state.meta && state.meta.upgrades && state.meta.upgrades[key]);
+    if (!Number.isFinite(level)) return 0;
+    return Math.max(0, Math.min(config.maxLevel, Math.floor(level)));
+  }
+
+  function metaValue(key) {
+    const config = META_UPGRADE_TREE[key];
+    if (!config) return 0;
+    const level = metaLevel(key);
+    const values = Array.isArray(config.values) ? config.values : [];
+    if (level < 0 || level >= values.length) return 0;
+    return Math.max(0, Number(values[level]) || 0);
+  }
+
+  function nextMetaUpgradeCost(key) {
+    const config = META_UPGRADE_TREE[key];
+    if (!config) return null;
+    const level = metaLevel(key);
+    if (level >= config.maxLevel) return null;
+    const costs = Array.isArray(config.costs) ? config.costs : [];
+    return Math.max(0, Math.floor(Number(costs[level]) || 0));
+  }
+
+  function heroStartingChips() {
+    return STARTING_CHIPS + metaValue("bankroll");
+  }
+
+  function heroExtraShopRerolls() {
+    return metaValue("reroll");
+  }
+
+  function heroItemSlotCount() {
+    return Math.max(4, Math.min(7, 4 + metaValue("slots")));
+  }
+
+  function saveMetaState() {
+    try {
+      window.localStorage.setItem(META_STORAGE_KEY, JSON.stringify(state.meta));
+    } catch (error) {
+      // Ignore storage restrictions.
+    }
+  }
+
+  function loadMetaState() {
+    let raw = null;
+    try {
+      const stored = window.localStorage.getItem(META_STORAGE_KEY);
+      raw = stored ? JSON.parse(stored) : null;
+    } catch (error) {
+      raw = null;
+    }
+    state.meta = normalizeMetaState(raw);
+  }
+
+  function applyMetaToPlayers({ refillHeroChips = false } = {}) {
+    const hero = humanPlayer();
+    if (!hero) return;
+
+    hero.maxItemSlots = defaultItemSlotsForPlayer(true);
+    compactPlayerItems(hero);
+
+    const untouchedRun = state.handId === 0 && state.handOver && state.stage === "idle";
+    if (refillHeroChips || untouchedRun) {
+      hero.chips = heroStartingChips();
+      hero.wasAliveAtHandStart = hero.chips > 0;
+    }
+  }
+
+  function addRunBloodCoins(amount, reason = "") {
+    const gained = Math.max(0, Math.floor(Number(amount) || 0));
+    if (gained <= 0) return;
+    state.runBloodCoins += gained;
+    if (reason) {
+      logHistory(`Blood Coin +${gained} (${reason}).`, "meta");
+    }
+  }
+
+  function settleRunBloodCoins() {
+    const payout = Math.max(0, Math.floor(Number(state.runBloodCoins) || 0));
+    state.lastSettledBloodCoins = payout;
+    if (payout > 0) {
+      state.meta.bloodCoins = Math.max(0, Math.floor(Number(state.meta.bloodCoins) || 0)) + payout;
+      saveMetaState();
+    }
+    state.runBloodCoins = 0;
+    return payout;
+  }
+
+  function tryBuyMetaUpgrade(key) {
+    const config = META_UPGRADE_TREE[key];
+    if (!config) return;
+
+    const cost = nextMetaUpgradeCost(key);
+    if (cost === null) {
+      setStatus(`${config.label} maxed.`, "This upgrade is already max level.");
+      render();
+      return;
+    }
+
+    if (state.meta.bloodCoins < cost) {
+      setStatus("Not enough Blood Coins.", `${config.label} requires ${cost}.`);
+      render();
+      return;
+    }
+
+    state.meta.bloodCoins -= cost;
+    state.meta.upgrades[key] = metaLevel(key) + 1;
+    saveMetaState();
+    applyMetaToPlayers({ refillHeroChips: state.homeVisible && state.handId === 0 && state.handOver });
+    setStatus(`${config.label} upgraded.`, `Blood Coin -${cost}`);
+    render();
+  }
+
+  function defaultItemSlotsForPlayer(isHuman) {
+    return isHuman ? heroItemSlotCount() : 2;
+  }
+
+  function archetypeIdFor(name, isHuman) {
+    if (isHuman) return "hero";
+    return NPC_ARCHETYPE_BY_NAME[name] || "trickster";
+  }
+
+  function archetypeProfileFor(player) {
+    if (!player || player.isHuman) return null;
+    return BOT_ARCHETYPE_PROFILE[player.botArchetype] || BOT_ARCHETYPE_PROFILE.trickster;
+  }
+
   function createPlayers() {
     state.players = [
       makePlayer("Viper", false),
@@ -188,13 +340,20 @@
       makePlayer("You", true),
       makePlayer("Jade", false)
     ];
+    state.players.forEach((player) => {
+      seedStarterLoadout(player);
+    });
+    assignNpcLoadoutsForStage(state.tournamentStage);
   }
 
   function makePlayer(name, isHuman) {
+    const botArchetype = archetypeIdFor(name, isHuman);
+    const botProfile = BOT_ARCHETYPE_PROFILE[botArchetype] || BOT_ARCHETYPE_PROFILE.trickster;
+
     return {
       name,
       isHuman,
-      chips: STARTING_CHIPS,
+      chips: isHuman ? heroStartingChips() : STARTING_CHIPS,
       hand: [],
       folded: false,
       allIn: false,
@@ -203,13 +362,39 @@
       lastAction: "",
       actionTone: "",
       showdown: null,
-      invested: 0
+      invested: 0,
+      items: [],
+      deck_mods: [],
+      maxItemSlots: defaultItemSlotsForPlayer(isHuman),
+      botArchetype,
+      botAggroBase: isHuman ? 1 : botProfile.aggroBase,
+      wasAliveAtHandStart: true,
+      handStartChips: isHuman ? heroStartingChips() : STARTING_CHIPS,
+      aggressiveActionsThisHand: 0,
+      reachedRiverThisHand: false,
+      sleightUsedRun: false,
+      riverForesightUsedThisHand: false,
+      wentAllInThisHand: false,
+      insuranceRefundedThisHand: false
     };
+  }
+
+  function cloneDeckMods(mods) {
+    if (!Array.isArray(mods)) return [];
+    return mods.map((mod) => ({ ...mod }));
+  }
+
+  function seedStarterLoadout(player) {
+    if (!player) return;
+    const starterIds = player.isHuman ? HERO_STARTER_ITEMS : [];
+    const maxSlots = Math.max(0, Number(player.maxItemSlots) || 0);
+    player.items = starterIds.slice(0, maxSlots).map((id) => ({ id }));
+    player.deck_mods = player.isHuman ? cloneDeckMods(HERO_STARTER_DECK_MODS) : [];
   }
 
   function resetTable() {
     state.players.forEach((player) => {
-      player.chips = STARTING_CHIPS;
+      player.chips = player.isHuman ? heroStartingChips() : STARTING_CHIPS;
       player.hand = [];
       player.folded = false;
       player.allIn = false;
@@ -219,6 +404,16 @@
       player.actionTone = "";
       player.showdown = null;
       player.invested = 0;
+      player.wasAliveAtHandStart = player.chips > 0;
+      player.handStartChips = player.chips;
+      player.aggressiveActionsThisHand = 0;
+      player.reachedRiverThisHand = false;
+      player.sleightUsedRun = false;
+      player.riverForesightUsedThisHand = false;
+      player.wentAllInThisHand = false;
+      player.insuranceRefundedThisHand = false;
+      player.maxItemSlots = defaultItemSlotsForPlayer(player.isHuman);
+      seedStarterLoadout(player);
     });
     state.dealerIndex = -1;
     state.smallBlindIndex = -1;
@@ -228,8 +423,15 @@
     state.bigBlind = BIG_BLIND;
     state.tournamentStage = 0;
     state.pendingStageAdvance = false;
+    state.runBloodCoins = 0;
     state.dealtHoleCounts = state.players.map(() => 0);
     state.communityVisible = 0;
+    state.markedLensUsedThisHand = false;
+    state.markedLensReveal = null;
+    state.riverForesightReveal = null;
+    state.handWinnerIndices = [];
+    clearEconomyState();
+    assignNpcLoadoutsForStage(state.tournamentStage);
   }
 
   function initSeats() {
@@ -258,8 +460,682 @@
     return deck;
   }
 
-  function drawCard() {
-    return state.deck.pop();
+  function hasItem(player, itemId) {
+    if (!player || !Array.isArray(player.items)) return false;
+    return player.items.some((entry) => {
+      const id = typeof entry === "string" ? entry : entry && entry.id;
+      return id === itemId;
+    });
+  }
+
+  function isClickableUseItemId(itemId) {
+    return itemId === "sleight_of_hand" || itemId === "marked_lenses" || itemId === "river_foresight";
+  }
+
+  function ensureBalanceStats() {
+    if (!state.balanceStats || typeof state.balanceStats !== "object") {
+      state.balanceStats = {
+        handsPlayed: 0,
+        lastSummaryHand: 0,
+        lastWinRecordedHand: -1,
+        lastBannerHand: 0,
+        items: {}
+      };
+    }
+    if (!Number.isFinite(state.balanceStats.lastBannerHand)) {
+      state.balanceStats.lastBannerHand = 0;
+    }
+    if (!state.balanceStats.items || typeof state.balanceStats.items !== "object") {
+      state.balanceStats.items = {};
+    }
+    Object.keys(ITEM_DB).forEach((itemId) => {
+      if (!state.balanceStats.items[itemId]) {
+        state.balanceStats.items[itemId] = { hands: 0, procs: 0, wins: 0 };
+      }
+    });
+    return state.balanceStats;
+  }
+
+  function ensureBalanceTuning() {
+    if (!state.balanceTuning || typeof state.balanceTuning !== "object") {
+      state.balanceTuning = {
+        effectPctByItem: {},
+        procPctByItem: {},
+        lastAppliedStatsHand: 0
+      };
+    }
+    if (!state.balanceTuning.effectPctByItem || typeof state.balanceTuning.effectPctByItem !== "object") {
+      state.balanceTuning.effectPctByItem = {};
+    }
+    if (!state.balanceTuning.procPctByItem || typeof state.balanceTuning.procPctByItem !== "object") {
+      state.balanceTuning.procPctByItem = {};
+    }
+    if (!Number.isFinite(state.balanceTuning.lastAppliedStatsHand)) {
+      state.balanceTuning.lastAppliedStatsHand = 0;
+    }
+    return state.balanceTuning;
+  }
+
+  function itemEffectScale(itemId) {
+    const tuning = ensureBalanceTuning();
+    const pct = Number(tuning.effectPctByItem[itemId]) || 0;
+    return clamp(1 + pct / 100, 0.4, 1.8);
+  }
+
+  function itemProcScale(itemId) {
+    const tuning = ensureBalanceTuning();
+    const pct = Number(tuning.procPctByItem[itemId]) || 0;
+    return clamp(1 + pct / 100, 0.55, 1.55);
+  }
+
+  function itemCombinedScale(itemId, min = 0.3, max = 2.2) {
+    return clamp(itemEffectScale(itemId) * itemProcScale(itemId), min, max);
+  }
+
+  const BALANCE_TARGET_WINRATE_MIN = 0.46;
+  const BALANCE_TARGET_WINRATE_MAX = 0.58;
+  const BALANCE_SAMPLE_MIN_HANDS = 8;
+  const BALANCE_EFFECT_ADJUST_MAX = 20;
+  const BALANCE_PROC_ADJUST_MAX = 12;
+
+  function balanceBandForWinRate(winRate) {
+    if (!Number.isFinite(winRate)) return "unknown";
+    if (winRate < BALANCE_TARGET_WINRATE_MIN) return "cold";
+    if (winRate > BALANCE_TARGET_WINRATE_MAX) return "hot";
+    return "ok";
+  }
+
+  function balanceBandEmoji(band) {
+    if (band === "hot") return "🔴";
+    if (band === "cold") return "🔵";
+    if (band === "ok") return "🟢";
+    return "⚪";
+  }
+
+  function balanceBandLabel(band) {
+    if (band === "hot") return "HOT";
+    if (band === "cold") return "COLD";
+    if (band === "ok") return "OK";
+    return "N/A";
+  }
+
+  function pctText(ratio) {
+    if (!Number.isFinite(ratio)) return "0%";
+    return `${Math.round(ratio * 100)}%`;
+  }
+
+  function clampPct(value, limit) {
+    const safe = Number(value);
+    if (!Number.isFinite(safe)) return 0;
+    const bounded = Math.max(-limit, Math.min(limit, safe));
+    return Math.round(bounded);
+  }
+
+  function tuningSuggestionForEntry(entry) {
+    if (!entry || entry.hands < BALANCE_SAMPLE_MIN_HANDS) {
+      return { kind: "none", deltaPct: 0, label: "유지", confidence: 0 };
+    }
+
+    const center = (BALANCE_TARGET_WINRATE_MIN + BALANCE_TARGET_WINRATE_MAX) / 2;
+    const winGap = entry.winRate - center;
+    const absGap = Math.abs(winGap);
+    const confidence = Math.min(1, entry.hands / 30);
+
+    if (absGap < 0.015) {
+      if (entry.procRate < 0.14) {
+        const delta = clampPct((0.14 - entry.procRate) * 120, BALANCE_PROC_ADJUST_MAX);
+        if (delta > 0) {
+          return { kind: "proc", deltaPct: delta, label: `발동률 +${delta}%`, confidence };
+        }
+      }
+      if (entry.procRate > 0.72) {
+        const delta = clampPct((entry.procRate - 0.72) * 120, BALANCE_PROC_ADJUST_MAX);
+        if (delta > 0) {
+          return { kind: "proc", deltaPct: -delta, label: `발동률 -${delta}%`, confidence };
+        }
+      }
+      return { kind: "none", deltaPct: 0, label: "유지", confidence };
+    }
+
+    const effectShift = clampPct((winGap / 0.06) * 10, BALANCE_EFFECT_ADJUST_MAX);
+    if (effectShift > 0) {
+      const nerf = Math.max(4, Math.abs(effectShift));
+      return { kind: "effect", deltaPct: -nerf, label: `효과 -${nerf}%`, confidence };
+    }
+    const buff = Math.max(4, Math.abs(effectShift));
+    return { kind: "effect", deltaPct: buff, label: `효과 +${buff}%`, confidence };
+  }
+
+  function balanceStatEntry(itemId) {
+    if (!itemId || !ITEM_DB[itemId]) return null;
+    const stats = ensureBalanceStats();
+    if (!stats.items[itemId]) {
+      stats.items[itemId] = { hands: 0, procs: 0, wins: 0 };
+    }
+    return stats.items[itemId];
+  }
+
+  function trackHandItemExposure() {
+    const stats = ensureBalanceStats();
+    stats.handsPlayed += 1;
+    state.players.forEach((player) => {
+      if (!player || player.chips <= 0 || player.folded) return;
+      normalizePlayerItemEntries(player).forEach((entry) => {
+        const stat = balanceStatEntry(entry.id);
+        if (!stat) return;
+        stat.hands += 1;
+      });
+    });
+  }
+
+  function trackItemProc(itemId) {
+    const stat = balanceStatEntry(itemId);
+    if (!stat) return;
+    stat.procs += 1;
+  }
+
+  function trackWinningItems(winnerIndices) {
+    const stats = ensureBalanceStats();
+    if (stats.lastWinRecordedHand === state.handId) return;
+    if (!Array.isArray(winnerIndices) || winnerIndices.length <= 0) return;
+    stats.lastWinRecordedHand = state.handId;
+    winnerIndices.forEach((winnerIndex) => {
+      const player = state.players[winnerIndex];
+      if (!player) return;
+      normalizePlayerItemEntries(player).forEach((entry) => {
+        const stat = balanceStatEntry(entry.id);
+        if (!stat) return;
+        stat.wins += 1;
+      });
+    });
+  }
+
+  function collectBalanceSampledEntries() {
+    const stats = ensureBalanceStats();
+    return Object.entries(stats.items)
+      .filter(([itemId, stat]) => ITEM_DB[itemId] && stat.hands >= BALANCE_SAMPLE_MIN_HANDS)
+      .map(([itemId, stat]) => {
+        const hands = Math.max(0, Number(stat.hands) || 0);
+        const procs = Math.max(0, Number(stat.procs) || 0);
+        const wins = Math.max(0, Number(stat.wins) || 0);
+        const winRate = wins / Math.max(1, hands);
+        const procRate = procs / Math.max(1, hands);
+        const band = balanceBandForWinRate(winRate);
+        const center = (BALANCE_TARGET_WINRATE_MIN + BALANCE_TARGET_WINRATE_MAX) / 2;
+        const dev = Math.abs(winRate - center);
+        const entry = { itemId, stat, hands, procs, wins, winRate, procRate, band, dev };
+        const suggestion = tuningSuggestionForEntry(entry);
+        const severity =
+          (band === "hot" || band === "cold" ? dev * 100 : 0) +
+          Math.abs(suggestion.deltaPct || 0) * (0.45 + suggestion.confidence * 0.55);
+        return { ...entry, suggestion, severity };
+      });
+  }
+
+  function getPendingAutoTuneEntries(limit = 4) {
+    const safeLimit = Math.max(1, Math.floor(Number(limit) || 4));
+    return collectBalanceSampledEntries()
+      .filter((entry) => entry.suggestion && entry.suggestion.kind !== "none")
+      .sort((a, b) => b.severity - a.severity)
+      .slice(0, safeLimit);
+  }
+
+  function maybeLogBalanceSummary(force = false) {
+    const stats = ensureBalanceStats();
+    const handsPlayed = Math.max(0, Number(stats.handsPlayed) || 0);
+    if (handsPlayed <= 0) return;
+    if (!force) {
+      if (handsPlayed < 5) return;
+      if (handsPlayed === stats.lastSummaryHand) return;
+      if (handsPlayed % 5 !== 0) return;
+    }
+    stats.lastSummaryHand = handsPlayed;
+    const sampled = collectBalanceSampledEntries();
+    if (sampled.length <= 0) return;
+
+    const rows = sampled
+      .sort((a, b) => {
+        const procDiff = b.procs - a.procs;
+        if (procDiff !== 0) return procDiff;
+        return b.winRate - a.winRate;
+      })
+      .slice(0, 6)
+      .map((entry) => {
+        const itemName = ITEM_DB[entry.itemId].name;
+        const tag = `${balanceBandEmoji(entry.band)}${balanceBandLabel(entry.band)}`;
+        const suggestText = entry.suggestion && entry.suggestion.kind !== "none" ? ` · 권장 ${entry.suggestion.label}` : "";
+        return `${tag} ${itemName} H${entry.hands}/P${entry.procs}(${pctText(entry.procRate)})/W${pctText(entry.winRate)}${suggestText}`;
+      });
+
+    if (rows.length > 0) {
+      const hasHot = sampled.some((entry) => entry.band === "hot");
+      const hasCold = sampled.some((entry) => entry.band === "cold");
+      const summaryType = hasHot ? "balance-hot" : hasCold ? "balance-cold" : "balance-ok";
+      logHistory(`아이템 밸런스 리포트 (${handsPlayed}핸드): ${rows.join(" | ")}`, summaryType);
+
+      const suggestions = getPendingAutoTuneEntries(4).map((entry) => `${ITEM_DB[entry.itemId].name} ${entry.suggestion.label}`);
+      if (suggestions.length > 0) {
+        logHistory(`자동 밸런스 제안: ${suggestions.join(" | ")}`, summaryType);
+      }
+
+      if (stats.lastBannerHand !== handsPlayed) {
+        if (hasHot || hasCold) {
+          const offenders = sampled
+            .filter((entry) => entry.band === "hot" || entry.band === "cold")
+            .sort((a, b) => b.severity - a.severity)
+            .slice(0, 3)
+            .map((entry) => {
+              const suggestionText = entry.suggestion && entry.suggestion.kind !== "none" ? ` ${entry.suggestion.label}` : "";
+              return `${ITEM_DB[entry.itemId].name} ${pctText(entry.winRate)}${suggestionText}`;
+            })
+            .join(" · ");
+          const tone = hasHot ? "balance-hot" : "balance-cold";
+          const title = hasHot ? "BALANCE WARNING · HOT" : "BALANCE WARNING · COLD";
+          const sub = offenders || "아이템 승률이 목표 구간을 벗어났습니다.";
+          showStageBanner(title, sub, tone, 2200);
+          stats.lastBannerHand = handsPlayed;
+        } else if (suggestions.length > 0) {
+          const tip = suggestions.slice(0, 2).join(" · ");
+          showStageBanner("BALANCE TIP", tip, "balance-ok", 1700);
+          stats.lastBannerHand = handsPlayed;
+        }
+      }
+    }
+  }
+
+  function applyAutoBalanceTune(limit = 4) {
+    const stats = ensureBalanceStats();
+    const tuning = ensureBalanceTuning();
+    const handsPlayed = Math.max(0, Number(stats.handsPlayed) || 0);
+    if (handsPlayed < BALANCE_SAMPLE_MIN_HANDS) {
+      setStatus("오토 튠 대기중.", `${BALANCE_SAMPLE_MIN_HANDS}핸드 이상 데이터가 필요합니다.`);
+      return;
+    }
+    if (tuning.lastAppliedStatsHand === handsPlayed) {
+      setStatus("이미 적용됨.", "새 핸드 데이터가 쌓인 뒤 다시 적용할 수 있습니다.");
+      return;
+    }
+
+    const entries = getPendingAutoTuneEntries(limit);
+    if (entries.length <= 0) {
+      setStatus("조정 필요 없음.", "현재 샘플에서 자동 조정 제안이 없습니다.");
+      return;
+    }
+
+    const applied = [];
+    entries.forEach((entry) => {
+      const itemId = entry.itemId;
+      const suggestion = entry.suggestion;
+      if (!itemId || !suggestion || suggestion.kind === "none") return;
+      if (suggestion.kind === "effect") {
+        const current = Number(tuning.effectPctByItem[itemId]) || 0;
+        tuning.effectPctByItem[itemId] = clamp(current + suggestion.deltaPct, -50, 50);
+      } else if (suggestion.kind === "proc") {
+        const current = Number(tuning.procPctByItem[itemId]) || 0;
+        tuning.procPctByItem[itemId] = clamp(current + suggestion.deltaPct, -35, 35);
+      }
+      applied.push(`${ITEM_DB[itemId].name} ${suggestion.label}`);
+    });
+
+    if (applied.length <= 0) {
+      setStatus("조정 실패.", "적용 가능한 제안이 없습니다.");
+      return;
+    }
+
+    tuning.lastAppliedStatsHand = handsPlayed;
+    const summary = applied.slice(0, 4).join(" · ");
+    logHistory(`오토 튠 적용 (${handsPlayed}핸드 데이터): ${summary}`, "balance-ok");
+    showStageBanner("AUTO TUNE APPLIED", summary, "balance-ok", 2100);
+    setStatus("오토 튠 적용 완료.", `${applied.length}개 아이템 조정 반영`);
+    render();
+  }
+
+  function itemIdFromEntry(entry) {
+    if (typeof entry === "string") return entry;
+    if (entry && typeof entry === "object") return entry.id;
+    return null;
+  }
+
+  function normalizePlayerItemEntries(player) {
+    if (!player || !Array.isArray(player.items)) return [];
+    return player.items
+      .map((entry) => {
+        const id = itemIdFromEntry(entry);
+        if (!id || !ITEM_DB[id]) return null;
+        return { id };
+      })
+      .filter(Boolean);
+  }
+
+  function itemSlotCount(player) {
+    return Math.max(0, Number(player && player.maxItemSlots) || 0);
+  }
+
+  function compactPlayerItems(player) {
+    if (!player) return [];
+    const maxSlots = itemSlotCount(player);
+    const entries = normalizePlayerItemEntries(player);
+    if (maxSlots <= 0) {
+      player.items = [];
+      return [];
+    }
+
+    const trimmed = entries.slice(-maxSlots);
+    player.items = trimmed.map((entry) => ({ id: entry.id }));
+    return player.items;
+  }
+
+  function removeOneItemFromPlayer(player, itemId) {
+    if (!player || !itemId || !Array.isArray(player.items)) return false;
+    const index = player.items.findIndex((entry) => itemIdFromEntry(entry) === itemId);
+    if (index < 0) return false;
+    player.items.splice(index, 1);
+    compactPlayerItems(player);
+    return true;
+  }
+
+  function consumeItemOnUse(player, itemId) {
+    if (!player || !itemId) return false;
+    const removed = removeOneItemFromPlayer(player, itemId);
+    if (!removed) return false;
+    const item = ITEM_DB[itemId];
+    if (item) {
+      logHistory(`${player.name} ${item.name} 소모.`, "info");
+    }
+    return true;
+  }
+
+  function sellOwnedItem(player, itemId) {
+    if (!player || !itemId || !ITEM_DB[itemId]) return false;
+    const item = ITEM_DB[itemId];
+    if (!removeOneItemFromPlayer(player, itemId)) return false;
+    const amount = lootSellValue(itemId);
+    player.chips += amount;
+    setPlayerAction(player, `판매 +${toCurrency(amount)}`, "strong");
+    logHistory(`${player.name} 아이템 판매: ${item.name} +${toCurrency(amount)}.`, "loot");
+    playSfx("chip", { amount });
+    if (player.isHuman) {
+      setStatus(`${item.name} 판매.`, `+${toCurrency(amount)} Chips`);
+    }
+    render();
+    return true;
+  }
+
+  function pullRandomItemFromPlayer(player) {
+    if (!player || !Array.isArray(player.items) || player.items.length === 0) return null;
+    const indexed = player.items
+      .map((entry, index) => {
+        const id = itemIdFromEntry(entry);
+        if (!id || !ITEM_DB[id]) return null;
+        return { index, id };
+      })
+      .filter(Boolean);
+    if (indexed.length === 0) {
+      player.items = [];
+      return null;
+    }
+
+    const picked = indexed[Math.floor(Math.random() * indexed.length)];
+    player.items.splice(picked.index, 1);
+    compactPlayerItems(player);
+    return { id: picked.id };
+  }
+
+  function equipItemToPlayer(player, itemId, { allowReplace = true } = {}) {
+    if (!player || !itemId || !ITEM_DB[itemId]) {
+      return { ok: false, reason: "invalid_item", replacedId: null };
+    }
+
+    const maxSlots = itemSlotCount(player);
+    if (maxSlots <= 0) {
+      return { ok: false, reason: "no_slot", replacedId: null };
+    }
+
+    const entries = compactPlayerItems(player).map((entry) => ({ id: itemIdFromEntry(entry) })).filter((entry) => !!entry.id);
+    if (entries.some((entry) => entry.id === itemId)) {
+      return { ok: false, reason: "duplicate", replacedId: null };
+    }
+
+    let replacedId = null;
+    if (entries.length >= maxSlots) {
+      if (!allowReplace) {
+        return { ok: false, reason: "full", replacedId: null };
+      }
+      const replaced = entries.shift();
+      replacedId = replaced ? replaced.id : null;
+    }
+
+    entries.push({ id: itemId });
+    player.items = entries;
+    return { ok: true, reason: "", replacedId };
+  }
+
+  function lootSellValue(itemId) {
+    const item = ITEM_DB[itemId];
+    if (!item) return LOOT_SELL_MIN;
+    return Math.max(LOOT_SELL_MIN, Math.round((Number(item.price) || 0) * LOOT_SELL_MULTIPLIER));
+  }
+
+  function shopRerollCost() {
+    return SHOP_BASE_REROLL_COST + state.tournamentStage * SHOP_STAGE_REROLL_STEP;
+  }
+
+  function isEconomyModalOpen() {
+    return !!(state.currentLoot || state.shopVisible);
+  }
+
+  function clearEconomyState() {
+    state.lootQueue = [];
+    state.currentLoot = null;
+    state.shopVisible = false;
+    state.shopOffers = [];
+    state.shopRerollsLeft = 0;
+  }
+
+  function normalizedDeckMods(player) {
+    if (!player || !Array.isArray(player.deck_mods)) return [];
+    return player.deck_mods.filter((mod) => mod && typeof mod === "object");
+  }
+
+  function countJokerDeckMods(players) {
+    let count = 0;
+    players.forEach((player) => {
+      const mods = normalizedDeckMods(player);
+      mods.forEach((mod) => {
+        if (mod.type !== "joker_wild") return;
+        const add = Math.max(1, Math.floor(Number(mod.count) || 1));
+        count += add;
+      });
+    });
+    return count;
+  }
+
+  function applyDeckModifiersToDeck(deck) {
+    const activePlayers = state.players.filter((player) => player && player.chips > 0);
+    const jokerCount = Math.min(1, countJokerDeckMods(activePlayers));
+    if (jokerCount <= 0) return deck;
+
+    for (let i = 0; i < jokerCount; i += 1) {
+      deck.push({ isJoker: true, rank: 0, suit: "J" });
+    }
+    return deck;
+  }
+
+  function summarizeBoardIntervention() {
+    const context = normalizeDrawContext({ drawKind: "community", street: state.stage });
+    const effects = buildDrawEffects(context);
+    const pieces = [];
+    if (effects.suitMagnetCount > 0) {
+      pieces.push(`수트 자석 x${effects.suitMagnetCount}`);
+    }
+    if (effects.heavyDiceCount > 0) {
+      pieces.push(`무게 주사위 x${effects.heavyDiceCount}`);
+    }
+    if (effects.turnHunterCount > 0) {
+      pieces.push(`턴 헌터 x${effects.turnHunterCount}`);
+    }
+    return pieces.join(", ");
+  }
+
+  function summarizeDeckMods(player) {
+    const mods = normalizedDeckMods(player);
+    if (!mods.length) return "없음";
+    return mods
+      .map((mod) => {
+        if (typeof mod.label === "string" && mod.label) return mod.label;
+        if (mod.type === "hand_multiplier") return `족보 x${Number(mod.multiplier) || 1}`;
+        if (mod.type === "gold_card") {
+          const rank = Number(mod.rank) || 0;
+          const suit = String(mod.suit || "");
+          if (rank === 0 || suit === "J") return "골드 조커";
+          return `골드 ${rankLabel(rank)}${suit}`;
+        }
+        if (mod.type === "joker_wild") return "조커 와일드";
+        return String(mod.type || "mod");
+      })
+      .join(", ");
+  }
+
+  function normalizeDrawContext(drawContext = null) {
+    if (!drawContext || typeof drawContext !== "object") {
+      return {
+        drawKind: "generic",
+        street: state.stage,
+        targetIndex: -1
+      };
+    }
+
+    return {
+      drawKind: drawContext.drawKind || drawContext.kind || "generic",
+      street: drawContext.street || state.stage,
+      targetIndex: Number.isInteger(drawContext.targetIndex) ? drawContext.targetIndex : -1
+    };
+  }
+
+  function playersAffectingDraw(context) {
+    if (context.drawKind === "hole" && context.targetIndex >= 0) {
+      const target = state.players[context.targetIndex];
+      return target ? [target] : [];
+    }
+
+    if (context.drawKind === "community") {
+      const inHand = playersInHand();
+      if (inHand.length > 0) return inHand;
+      return state.players.filter((player) => player && player.chips > 0);
+    }
+
+    return state.players.filter((player) => player && player.chips > 0);
+  }
+
+  function buildDrawEffects(context) {
+    const affectedPlayers = playersAffectingDraw(context);
+    const effects = {
+      suitMagnetCount: 0,
+      heavyDiceCount: 0,
+      turnHunterCount: 0,
+      royalTasteActive: false,
+      pairHunterActive: false,
+      suitTailorActive: false
+    };
+
+    affectedPlayers.forEach((player) => {
+      if (hasItem(player, "suit_magnet")) {
+        effects.suitMagnetCount += 1;
+      }
+      if (hasItem(player, "heavy_dice")) {
+        effects.heavyDiceCount += 1;
+      }
+      if (hasItem(player, "turn_hunter")) {
+        effects.turnHunterCount += 1;
+      }
+    });
+
+    if (context.drawKind === "hole" && context.targetIndex >= 0) {
+      const target = state.players[context.targetIndex];
+      effects.royalTasteActive = hasItem(target, "royal_taste");
+      effects.pairHunterActive = hasItem(target, "pair_hunter");
+      effects.suitTailorActive = hasItem(target, "suit_tailor");
+    }
+
+    return effects;
+  }
+
+  function drawWeightForCard(card, context, effects) {
+    let weight = 1;
+    const street = String(context.street || "");
+    const onBoardStreet = street === "flop" || street === "turn" || street === "river";
+
+    if (context.drawKind === "community" && onBoardStreet) {
+      if (effects.suitMagnetCount > 0 && card.suit === "S") {
+        weight *= 1 + 0.3 * effects.suitMagnetCount * itemEffectScale("suit_magnet") * itemProcScale("suit_magnet");
+      }
+
+      if ((street === "turn" || street === "river") && effects.heavyDiceCount > 0) {
+        if (card.rank >= 2 && card.rank <= 5) {
+          const damp = itemEffectScale("heavy_dice") * itemProcScale("heavy_dice");
+          weight *= Math.max(0, 1 - damp);
+        }
+      }
+
+      if ((street === "turn" || street === "river") && effects.turnHunterCount > 0 && card.rank >= 10) {
+        weight *= 1 + 0.12 * effects.turnHunterCount * itemEffectScale("turn_hunter") * itemProcScale("turn_hunter");
+      }
+    }
+
+    if (context.drawKind === "hole" && street === "preflop" && effects.royalTasteActive) {
+      if (card.rank >= 11 || card.rank === 14) {
+        weight *= 1 + (1.55 - 1) * itemEffectScale("royal_taste") * itemProcScale("royal_taste");
+      }
+    }
+
+    if (context.drawKind === "hole" && street === "preflop" && context.targetIndex >= 0) {
+      const target = state.players[context.targetIndex];
+      const holeCount = target && Array.isArray(target.hand) ? target.hand.length : 0;
+      const anchor = target && holeCount > 0 ? target.hand[0] : null;
+      if (anchor && holeCount === 1) {
+        if (effects.pairHunterActive && card.rank === anchor.rank) {
+          weight *= 1 + (1.55 - 1) * itemEffectScale("pair_hunter") * itemProcScale("pair_hunter");
+        }
+        if (effects.suitTailorActive && card.suit === anchor.suit) {
+          weight *= 1 + (1.45 - 1) * itemEffectScale("suit_tailor") * itemProcScale("suit_tailor");
+        }
+      }
+    }
+
+    return weight;
+  }
+
+  function drawCard(drawContext = null) {
+    if (!state.deck.length) return null;
+
+    const context = normalizeDrawContext(drawContext);
+    const effects = buildDrawEffects(context);
+    const weighted = [];
+    let totalWeight = 0;
+
+    for (let i = 0; i < state.deck.length; i += 1) {
+      const card = state.deck[i];
+      const weight = drawWeightForCard(card, context, effects);
+      if (weight > 0) {
+        weighted.push({ index: i, weight });
+        totalWeight += weight;
+      }
+    }
+
+    if (weighted.length === 0 || totalWeight <= 0) {
+      return state.deck.pop();
+    }
+
+    let roll = Math.random() * totalWeight;
+    for (const entry of weighted) {
+      roll -= entry.weight;
+      if (roll <= 0) {
+        return state.deck.splice(entry.index, 1)[0];
+      }
+    }
+
+    const last = weighted[weighted.length - 1];
+    return state.deck.splice(last.index, 1)[0];
   }
 
   function findCardIndexInDeck(deck, rank, suit) {
@@ -470,11 +1346,335 @@
     return !player.folded && !player.allIn && player.chips > 0;
   }
 
+  const INSURANCE_REFUND_RATE = 0.35;
+  const INSURANCE_MIN_ALLIN_INVEST = 200;
+  const BOUNTY_CHIP_BONUS = 220;
+  const BLIND_REFUND_RATE = 0.2;
+  const RIVER_SURFER_BONUS = 140;
+  const SPLIT_GUARD_BONUS = 90;
+  const UNDERDOG_EMBLEM_MULTIPLIER = 1.25;
+  const TRIPLE_BARREL_STEP = 0.08;
+
+  function allInWinMultiplierFor(player) {
+    if (!player) return 1;
+    if (!hasItem(player, "allin_multiplier")) return 1;
+    if (!player.wentAllInThisHand) return 1;
+    const scale = itemCombinedScale("allin_multiplier", 0.45, 1.9);
+    const bonus = (2 - 1) * scale;
+    return clamp(1 + bonus, 1, 3);
+  }
+
+  function nextCommunityStreetFromStage(stage = state.stage) {
+    if (stage === "preflop") return "flop";
+    if (stage === "flop") return "turn";
+    if (stage === "turn") return "river";
+    return null;
+  }
+
+  function canUseRiverForesight(player) {
+    if (!player || !hasItem(player, "river_foresight")) return false;
+    if (state.handOver || state.stage === "idle") return false;
+    if (state.roundTransitioning || state.animatingDeal) return false;
+    if (player.riverForesightUsedThisHand) return false;
+    if (player.folded || player.allIn) return false;
+    if (!nextCommunityStreetFromStage(state.stage)) return false;
+    if (state.riverForesightReveal && state.riverForesightReveal.handId === state.handId) return true;
+    return state.deck.length > 0;
+  }
+
+  function consumeReservedCommunityCardForStreet(street) {
+    if (!state.riverForesightReveal) return null;
+    if (state.riverForesightReveal.street !== street) return null;
+    const card = state.riverForesightReveal.card || null;
+    state.riverForesightReveal = null;
+    return card;
+  }
+
+  function drawCommunityCardForStreet(street) {
+    const reserved = consumeReservedCommunityCardForStreet(street);
+    if (reserved) return reserved;
+    return drawCard({ drawKind: "community", street });
+  }
+
+  function useRiverForesight(player, { bot = false } = {}) {
+    if (!canUseRiverForesight(player)) return false;
+    const playerIndex = state.players.indexOf(player);
+    if (playerIndex < 0) return false;
+
+    const street = nextCommunityStreetFromStage(state.stage);
+    if (!street) return false;
+
+    let revealed = null;
+    if (state.riverForesightReveal && state.riverForesightReveal.handId === state.handId && state.riverForesightReveal.street === street) {
+      revealed = state.riverForesightReveal.card || null;
+    } else {
+      revealed = drawCard({ drawKind: "community", street });
+      if (!revealed) return false;
+      state.riverForesightReveal = {
+        handId: state.handId,
+        street,
+        card: revealed
+      };
+    }
+
+    player.riverForesightUsedThisHand = true;
+
+    setPlayerAction(player, "예지 사용", "strong");
+    if (bot) {
+      setStatus(`${player.name} 리버 예지 사용.`, "다음 보드를 읽었습니다.");
+      logHistory(`리버 예지: ${player.name} 가 다음 보드를 읽었습니다.`, "info");
+      triggerItemProcEffect(playerIndex, "foresight", "예지 발동", "river_foresight");
+    } else {
+      setStatus("리버 예지 발동.", `${street.toUpperCase()} 예정 카드: ${cardText(revealed)} (사용 후 소모)`);
+      logHistory(`리버 예지: ${player.name} -> ${street.toUpperCase()} ${cardText(revealed)} 고정.`, "info");
+      triggerItemProcEffect(playerIndex, "foresight", `${street.toUpperCase()} ${cardText(revealed)}`, "river_foresight");
+    }
+    consumeItemOnUse(player, "river_foresight");
+    playSfx("card");
+    render();
+    return true;
+  }
+
+  function setHandWinnerIndices(indices) {
+    const unique = Array.isArray(indices)
+      ? [...new Set(indices.filter((index) => Number.isInteger(index) && index >= 0 && index < state.players.length))]
+      : [];
+    state.handWinnerIndices = unique;
+    trackWinningItems(unique);
+  }
+
+  function applyInsuranceRefunds() {
+    state.players.forEach((player, index) => {
+      if (!player || !hasItem(player, "insurance_contract")) return;
+      if (!player.wentAllInThisHand || player.folded || player.chips > 0) return;
+      if (player.insuranceRefundedThisHand) return;
+
+      const invested = Math.max(0, Math.floor(Number(player.invested) || 0));
+      if (invested <= 0) return;
+      if (invested < INSURANCE_MIN_ALLIN_INVEST) return;
+
+      const scale = itemCombinedScale("insurance_contract", 0.45, 1.8);
+      const refundRate = clamp(INSURANCE_REFUND_RATE * scale, 0.08, 0.85);
+      const refund = Math.max(1, Math.floor(invested * refundRate));
+      player.chips += refund;
+      player.insuranceRefundedThisHand = true;
+      setPlayerAction(player, `보험 +${toCurrency(refund)}`, "strong");
+      logHistory(`${player.name} 보험 계약 발동: +${toCurrency(refund)} 환급.`, "showdown");
+      triggerItemProcEffect(index, "shield", `보험 +${toCurrency(refund)}`, "insurance_contract");
+      playSfx("chip", { amount: refund });
+    });
+  }
+
+  function applyBountyHunterRewardsForBust(bustedIndex) {
+    const busted = state.players[bustedIndex];
+    if (!busted) return;
+
+    const winners = Array.isArray(state.handWinnerIndices) ? state.handWinnerIndices : [];
+    winners.forEach((winnerIndex) => {
+      if (winnerIndex === bustedIndex) return;
+      const hunter = state.players[winnerIndex];
+      if (!hunter || hunter.chips <= 0) return;
+      if (!hasItem(hunter, "bounty_hunter")) return;
+
+      const rewardScale = itemCombinedScale("bounty_hunter", 0.45, 1.9);
+      const reward = Math.max(1, Math.floor(BOUNTY_CHIP_BONUS * rewardScale));
+      hunter.chips += reward;
+      setPlayerAction(hunter, `Bounty +${toCurrency(reward)}`, "strong");
+      logHistory(`${hunter.name} 현상금 사냥 성공: ${busted.name} 파산 보너스 +${toCurrency(reward)}.`, "loot");
+      triggerItemProcEffect(winnerIndex, "bounty", `현상금 +${toCurrency(reward)}`, "bounty_hunter");
+      playSfx("chip", { amount: reward });
+      if (hunter.isHuman) {
+        addRunBloodCoins(1, `${busted.name} 바운티`);
+      }
+    });
+  }
+
+  function canUseSleightOfHand(player) {
+    if (!player || !hasItem(player, "sleight_of_hand")) return false;
+    if (state.handOver || state.stage !== "preflop") return false;
+    if (player.folded || player.allIn) return false;
+    const playerIndex = state.players.indexOf(player);
+    if (playerIndex < 0) return false;
+    const dealt = state.dealtHoleCounts[playerIndex] || 0;
+    return dealt >= 2 && player.hand.length >= 2;
+  }
+
+  function pickSleightReplaceIndex(player) {
+    if (!player || !Array.isArray(player.hand) || player.hand.length < 2) return 0;
+    const a = player.hand[0];
+    const b = player.hand[1];
+    if (!a || !b) return 0;
+    if (a.rank === b.rank) return Math.random() < 0.5 ? 0 : 1;
+    return a.rank < b.rank ? 0 : 1;
+  }
+
+  function sleightRankValue(card) {
+    if (!card) return 0;
+    if (isJokerCard(card)) return 18;
+    const rank = Number(card.rank) || 0;
+    return rank === 1 ? 14 : rank;
+  }
+
+  function sleightHoleComboScore(cardA, cardB) {
+    if (!cardA || !cardB) return -999;
+    const ra = sleightRankValue(cardA);
+    const rb = sleightRankValue(cardB);
+    const high = Math.max(ra, rb);
+    const low = Math.min(ra, rb);
+    const gap = Math.max(0, high - low - 1);
+    let score = high * 2.05 + low * 1.12;
+
+    if (ra === rb) {
+      score += 44 + high * 1.45;
+    } else {
+      if ((cardA.suit || "") === (cardB.suit || "")) score += 6.3;
+      if (gap === 0) score += 8.4;
+      else if (gap === 1) score += 5.2;
+      else if (gap === 2) score += 2.4;
+      else score -= Math.min(7, gap * 0.75);
+    }
+
+    if (high >= 11 && low >= 10) score += 3.8;
+    if (high === 14 && low >= 10) score += 4.8;
+    if (high >= 13) score += 1.5;
+    return score;
+  }
+
+  function drawImprovedSleightCard(playerIndex, replaceIndex) {
+    const player = state.players[playerIndex];
+    if (!player || !Array.isArray(player.hand) || player.hand.length < 2) return null;
+    const keepIndex = replaceIndex === 0 ? 1 : 0;
+    const keepCard = player.hand[keepIndex];
+    const oldCard = player.hand[replaceIndex];
+    if (!keepCard || !oldCard) return null;
+
+    const baseScore = sleightHoleComboScore(keepCard, oldCard);
+    let bestScore = baseScore;
+    const improved = [];
+
+    for (let i = 0; i < state.deck.length; i += 1) {
+      const candidate = state.deck[i];
+      const score = sleightHoleComboScore(keepCard, candidate);
+      if (score <= baseScore + 0.01) continue;
+      if (score > bestScore + 0.01) {
+        bestScore = score;
+      }
+      improved.push({ index: i, score });
+    }
+
+    if (improved.length <= 0) return null;
+    const bestBand = improved.filter((entry) => entry.score >= bestScore - 2.2);
+    const pool = bestBand.length > 0 ? bestBand : improved;
+    const pick = pool[Math.floor(Math.random() * pool.length)];
+    if (!pick) return null;
+    return state.deck.splice(pick.index, 1)[0];
+  }
+
+  function useSleightOfHand(player, { bot = false } = {}) {
+    if (!canUseSleightOfHand(player)) return false;
+
+    const playerIndex = state.players.indexOf(player);
+    const replaceIndex = pickSleightReplaceIndex(player);
+    const discarded = player.hand[replaceIndex];
+    if (!discarded) return false;
+    const keepIndex = replaceIndex === 0 ? 1 : 0;
+    const keepCard = player.hand[keepIndex];
+    const beforeScore = sleightHoleComboScore(keepCard, discarded);
+
+    state.deck.push(discarded);
+    shuffle(state.deck);
+
+    const upgradedCard = drawImprovedSleightCard(playerIndex, replaceIndex);
+    const nextCard = upgradedCard || drawCard({ drawKind: "hole", street: "preflop", targetIndex: playerIndex });
+    if (!nextCard) return false;
+
+    player.hand[replaceIndex] = nextCard;
+    const afterScore = sleightHoleComboScore(keepCard, nextCard);
+    const improved = afterScore > beforeScore + 0.01;
+    setPlayerAction(player, "밑장빼기", "strong");
+    const improveTag = improved ? "↑강화" : "↔유지";
+    logHistory(`${player.name} 밑장빼기 사용 (${cardText(discarded)} -> ${cardText(nextCard)} · ${improveTag}).`, "info");
+
+    if (player.isHuman && !bot) {
+      setStatus("밑장빼기 사용.", `${cardText(discarded)} -> ${cardText(nextCard)} (${improveTag}, 사용 후 소모)`);
+    }
+    triggerItemProcEffect(playerIndex, "mult", "밑장빼기!", "sleight_of_hand");
+    consumeItemOnUse(player, "sleight_of_hand");
+    playSfx("card");
+    render();
+    return true;
+  }
+
+  function markedLensTargets(playerIndex) {
+    const targets = [];
+    for (let i = 0; i < state.players.length; i += 1) {
+      if (i === playerIndex) continue;
+      const player = state.players[i];
+      if (!player || player.folded) continue;
+      const dealt = state.dealtHoleCounts[i] || 0;
+      if (dealt <= 0 || player.hand.length <= 0) continue;
+      targets.push(i);
+    }
+    return targets;
+  }
+
+  function canUseMarkedLenses(player) {
+    if (!player || !player.isHuman || !hasItem(player, "marked_lenses")) return false;
+    if (state.handOver || state.stage === "idle") return false;
+    if (state.markedLensUsedThisHand) return false;
+    if (state.handId <= 0 || state.handId % 3 !== 0) return false;
+    if (player.folded) return false;
+    const playerIndex = state.players.indexOf(player);
+    if (playerIndex < 0) return false;
+    return markedLensTargets(playerIndex).length > 0;
+  }
+
+  function useMarkedLenses(player) {
+    if (!canUseMarkedLenses(player)) return false;
+    const playerIndex = state.players.indexOf(player);
+    const targets = markedLensTargets(playerIndex);
+    if (targets.length === 0) return false;
+
+    const targetIndex = targets[Math.floor(Math.random() * targets.length)];
+    const target = state.players[targetIndex];
+    const dealt = Math.max(1, Math.min(2, state.dealtHoleCounts[targetIndex] || target.hand.length));
+    const cardIndex = Math.floor(Math.random() * dealt);
+    const revealed = target.hand[cardIndex];
+    if (!revealed) return false;
+
+    state.markedLensUsedThisHand = true;
+    state.markedLensReveal = {
+      handId: state.handId,
+      targetIndex,
+      cardIndex
+    };
+
+    setPlayerAction(player, "렌즈 확인", "strong");
+    setStatus("마킹 렌즈 사용.", `${target.name} 카드 공개: ${cardText(revealed)} (사용 후 소모)`);
+    logHistory(`마킹 렌즈: ${target.name} 카드 공개 ${cardText(revealed)}.`, "info");
+    triggerItemProcEffect(playerIndex, "mult", "렌즈 발동", "marked_lenses");
+    consumeItemOnUse(player, "marked_lenses");
+    playSfx("call");
+    render();
+    return true;
+  }
+
   function toCurrency(value) {
     return value.toLocaleString("en-US");
   }
 
+  function formatMultiplier(value) {
+    const safe = Number(value);
+    if (!Number.isFinite(safe) || safe <= 0) return "1";
+    const rounded = Math.round(safe * 100) / 100;
+    if (Math.abs(rounded - Math.round(rounded)) < 0.001) {
+      return String(Math.round(rounded));
+    }
+    return String(rounded.toFixed(2)).replace(/0+$/, "").replace(/\.$/, "");
+  }
+
   function rankLabel(rank) {
+    if (rank === 0) return "🃏";
     if (rank === 14) return "A";
     if (rank === 13) return "K";
     if (rank === 12) return "Q";
@@ -482,7 +1682,14 @@
     return String(rank);
   }
 
+  function isJokerCard(card) {
+    if (!card) return false;
+    return !!card.isJoker || card.rank === 0 || card.suit === "J";
+  }
+
   function cardText(card) {
+    if (!card) return "--";
+    if (isJokerCard(card)) return "🃏";
     return `${rankLabel(card.rank)}${SUIT_SYMBOL[card.suit]}`;
   }
 
@@ -539,6 +1746,7 @@
     setHomeGuideVisible(false);
     setHomeVisibility(false);
     if (state.handId === 0 && state.handOver) {
+      state.lastSettledBloodCoins = 0;
       clearAutoNextHand();
       el.nextHandBtn.disabled = true;
       startHand();
@@ -567,12 +1775,31 @@
 
   function currentBlindLevelForHand(handId) {
     const index = Math.floor(Math.max(0, handId - 1) / HANDS_PER_LEVEL);
-    return Math.min(BLIND_LEVELS.length - 1, index);
+    return Math.max(0, index);
+  }
+
+  function extrapolatedBlindLevel(levelIndex) {
+    const safeIndex = Math.max(0, Math.floor(Number(levelIndex) || 0));
+    const maxIndex = BLIND_LEVELS.length - 1;
+    const base = BLIND_LEVELS[maxIndex];
+    if (!base) {
+      return { small: SMALL_BLIND, big: BIG_BLIND };
+    }
+    if (safeIndex <= maxIndex) {
+      return BLIND_LEVELS[safeIndex];
+    }
+
+    const extra = safeIndex - maxIndex;
+    const growth = 1.25 ** extra;
+    const stepped = (value) => Math.max(5, Math.round((value * growth) / 5) * 5);
+    const small = stepped(base.small);
+    const big = small * 2;
+    return { small, big };
   }
 
   function applyBlindLevel(levelIndex) {
-    const safeIndex = Math.max(0, Math.min(BLIND_LEVELS.length - 1, levelIndex));
-    const level = BLIND_LEVELS[safeIndex];
+    const safeIndex = Math.max(0, Math.floor(Number(levelIndex) || 0));
+    const level = extrapolatedBlindLevel(safeIndex);
     state.blindLevel = safeIndex;
     state.smallBlind = level.small;
     state.bigBlind = level.big;
@@ -591,12 +1818,137 @@
       name: `Legend Pit ${extra}`,
       npcChips: Math.round(base.npcChips * (1 + extra * 0.45)),
       bonus: Math.round(base.bonus * (1 + extra * 0.28)),
-      botAggro: Math.min(2.1, base.botAggro + extra * 0.12)
+      botAggro: Math.min(2.1, base.botAggro + extra * 0.12),
+      npcItemCount: [Math.min(4, 2 + extra), Math.min(4, 3 + extra)],
+      maxRarity: extra >= 2 ? "legendary" : "epic"
     };
   }
 
   function currentStageProfile() {
     return stageProfileFor(state.tournamentStage);
+  }
+
+  function rarityRank(rarity) {
+    const rank = ITEM_RARITY_ORDER.indexOf(String(rarity || "normal").toLowerCase());
+    return rank >= 0 ? rank : 0;
+  }
+
+  function normalizeItemCountRange(range) {
+    if (Array.isArray(range) && range.length >= 2) {
+      const a = Math.max(0, Math.floor(Number(range[0]) || 0));
+      const b = Math.max(0, Math.floor(Number(range[1]) || 0));
+      return a <= b ? [a, b] : [b, a];
+    }
+
+    const scalar = Math.max(0, Math.floor(Number(range) || 0));
+    return [scalar, scalar];
+  }
+
+  function randomIntInclusive(min, max) {
+    const low = Math.floor(min);
+    const high = Math.floor(max);
+    if (high <= low) return low;
+    return low + Math.floor(Math.random() * (high - low + 1));
+  }
+
+  function effectiveBotAggro(player, stageProfile = currentStageProfile()) {
+    const stageAggro = clamp(stageProfile && stageProfile.botAggro ? stageProfile.botAggro : 1, 0.55, 2.1);
+    if (!player || player.isHuman) return stageAggro;
+    const baseAggro = Number(player.botAggroBase) || 1;
+    return clamp(stageAggro * baseAggro, 0.45, 2.35);
+  }
+
+  function buildItemsByRarityCap(maxRarity) {
+    const capRank = rarityRank(maxRarity);
+    return Object.values(ITEM_DB).filter((item) => rarityRank(item.rarity) <= capRank);
+  }
+
+  function weightedItemPick(pool, weightMap, usedIds) {
+    const candidates = pool
+      .filter((item) => !usedIds.has(item.id))
+      .map((item) => ({
+        item,
+        weight: Math.max(0.05, Number(weightMap[item.id]) || 1)
+      }));
+
+    if (candidates.length === 0) return null;
+
+    const total = candidates.reduce((sum, entry) => sum + entry.weight, 0);
+    let roll = Math.random() * total;
+
+    for (const entry of candidates) {
+      roll -= entry.weight;
+      if (roll <= 0) return entry.item;
+    }
+
+    return candidates[candidates.length - 1].item;
+  }
+
+  function pickNpcItemCount(player, stageProfile) {
+    const [minCount, maxCount] = normalizeItemCountRange(stageProfile.npcItemCount);
+    if (maxCount <= 0) return 0;
+
+    let target = randomIntInclusive(minCount, maxCount);
+    const aggro = effectiveBotAggro(player, stageProfile);
+
+    if (maxCount > minCount) {
+      if (aggro >= 1.25 && Math.random() < 0.42) target += 1;
+      if (aggro <= 0.82 && Math.random() < 0.42) target -= 1;
+    }
+
+    return clamp(target, minCount, maxCount);
+  }
+
+  function buildNpcLoadout(player, itemCount, stageProfile) {
+    const maxRarity = stageProfile.maxRarity || "normal";
+    const pool = buildItemsByRarityCap(maxRarity);
+    if (!pool.length || itemCount <= 0) return [];
+
+    const archetype = archetypeProfileFor(player);
+    const weightMap = archetype && archetype.weights ? archetype.weights : {};
+    const usedIds = new Set();
+    const picked = [];
+
+    while (picked.length < itemCount && usedIds.size < pool.length) {
+      const nextItem = weightedItemPick(pool, weightMap, usedIds);
+      if (!nextItem) break;
+      usedIds.add(nextItem.id);
+      picked.push({ id: nextItem.id });
+    }
+
+    return picked;
+  }
+
+  function assignNpcLoadoutsForStage(stageIndex = state.tournamentStage) {
+    const profile = stageProfileFor(stageIndex);
+    const [_, maxCount] = normalizeItemCountRange(profile.npcItemCount);
+
+    state.players.forEach((player) => {
+      if (!player || player.isHuman) return;
+
+      const fallbackSlots = defaultItemSlotsForPlayer(false);
+      player.maxItemSlots = Math.max(fallbackSlots, maxCount);
+      const targetCount = Math.min(player.maxItemSlots, pickNpcItemCount(player, profile));
+      player.items = buildNpcLoadout(player, targetCount, profile);
+      player.deck_mods = Array.isArray(player.deck_mods) ? player.deck_mods : [];
+    });
+  }
+
+  function npcLoadoutSummary() {
+    return state.players
+      .filter((player) => player && !player.isHuman)
+      .map((player) => {
+        const names = (Array.isArray(player.items) ? player.items : [])
+          .map((entry) => {
+            const id = typeof entry === "string" ? entry : entry && entry.id;
+            return id && ITEM_DB[id] ? ITEM_DB[id].name : null;
+          })
+          .filter(Boolean);
+
+        if (names.length === 0) return `${player.name}: 없음`;
+        return `${player.name}: ${names.join(", ")}`;
+      })
+      .join(" | ");
   }
 
   function humanPlayer() {
@@ -614,7 +1966,9 @@
     const stageProfile = currentStageProfile();
     const stageText = `Stage ${state.tournamentStage + 1} · ${stageProfile.name}`;
     const handText = state.handId > 0 ? `Hand #${state.handId}` : "Hand #0";
-    const sub = `${stageText} / ${handText} 종료 · 칩을 모두 잃었습니다.`;
+    const settledCoins = settleRunBloodCoins();
+    const settlementText = settledCoins > 0 ? ` · Blood Coin +${toCurrency(settledCoins)}` : "";
+    const sub = `${stageText} / ${handText} 종료 · 칩을 모두 잃었습니다${settlementText}.`;
 
     state.gameOver = true;
     clearAutoNextHand();
@@ -623,9 +1977,10 @@
     state.actionLock = false;
     state.handOver = true;
     setPeek(false);
+    clearEconomyState();
     setDealerThrowing(false);
     clearDealLayer();
-    setStatus("Game Over.", "Restart Run을 눌러 새 런을 시작하세요.");
+    setStatus("Game Over.", "Lobby에서 Blood Coin 업그레이드 후 새 런을 시작하세요.");
     setGameOverVisibility(true, "GAME OVER", sub);
   }
 
@@ -649,6 +2004,7 @@
     state.pendingStageAdvance = false;
     state.communityCards = [];
     state.communityVisible = 0;
+    clearEconomyState();
     state.pot = 0;
     state.stage = "idle";
     state.currentBet = 0;
@@ -669,7 +2025,9 @@
       el.replayBtn.disabled = true;
     }
     el.nextHandBtn.disabled = true;
-    startHand();
+    setHomeGuideVisible(false);
+    setHomeVisibility(true);
+    setStatus("Run reset.", "Start Game으로 새 런을 시작하세요.");
   }
 
   function npcPlayers() {
@@ -686,12 +2044,17 @@
     if (state.pendingStageAdvance) return;
     if (!shouldAdvanceTournamentStage()) return;
     const nextProfile = stageProfileFor(state.tournamentStage + 1);
+    const clearReward = BLOOD_COIN_STAGE_CLEAR_BASE + state.tournamentStage * BLOOD_COIN_STAGE_CLEAR_STEP;
+    addRunBloodCoins(clearReward, `Stage ${state.tournamentStage + 1} clear`);
     state.pendingStageAdvance = true;
     logHistory(`Stage ${state.tournamentStage + 1} clear. Next: Stage ${state.tournamentStage + 2} ${nextProfile.name}.`, "stage");
-    setStatus(`Stage ${state.tournamentStage + 1} clear!`, `Press Next Hand, or auto-advance in ${Math.round(NEXT_HAND_IDLE_TIMEOUT_MS / 1000)}s.`);
+    setStatus(
+      `Stage ${state.tournamentStage + 1} clear!`,
+      `Blood Coin +${clearReward} · Press Next Hand, or auto-advance in ${Math.round(NEXT_HAND_IDLE_TIMEOUT_MS / 1000)}s.`
+    );
     showStageBanner(
       `Stage ${state.tournamentStage + 1} Clear`,
-      `Next: Stage ${state.tournamentStage + 2} · ${nextProfile.name}`,
+      `Blood Coin +${clearReward} · Next: Stage ${state.tournamentStage + 2} · ${nextProfile.name}`,
       "stage-clear",
       2400
     );
@@ -710,6 +2073,9 @@
     if (hero && hero.chips > 0 && profile.bonus > 0) {
       hero.chips += profile.bonus;
     }
+    if (hero) {
+      hero.wasAliveAtHandStart = hero.chips > 0;
+    }
 
     npcPlayers().forEach((player) => {
       player.chips = profile.npcChips;
@@ -722,14 +2088,270 @@
       player.actionTone = "";
       player.showdown = null;
       player.invested = 0;
+      player.wasAliveAtHandStart = true;
+      player.handStartChips = player.chips;
+      player.aggressiveActionsThisHand = 0;
+      player.reachedRiverThisHand = false;
+      player.riverForesightUsedThisHand = false;
+      player.wentAllInThisHand = false;
+      player.insuranceRefundedThisHand = false;
     });
 
     state.dealerIndex = -1;
     state.smallBlindIndex = -1;
     state.bigBlindIndex = -1;
+    assignNpcLoadoutsForStage(state.tournamentStage);
 
     const bonusText = profile.bonus > 0 ? ` | Bonus +${toCurrency(profile.bonus)}` : "";
     return `Stage ${state.tournamentStage + 1} - ${profile.name}: NPC stacks ${toCurrency(profile.npcChips)}${bonusText}`;
+  }
+
+  function shopPriceForItem(item) {
+    if (!item) return 0;
+    const base = Math.max(80, Number(item.price) || 0);
+    return Math.round(base * (1 + state.tournamentStage * 0.12));
+  }
+
+  function rollShopOffers() {
+    const profile = currentStageProfile();
+    const pool = buildItemsByRarityCap(profile.maxRarity || "normal");
+    if (pool.length === 0) return [];
+
+    const used = new Set();
+    const offers = [];
+    let attempts = 0;
+    const maxAttempts = Math.max(pool.length * 4, SHOP_OFFER_COUNT * 3);
+
+    while (offers.length < SHOP_OFFER_COUNT && attempts < maxAttempts) {
+      attempts += 1;
+      const candidate = pool[Math.floor(Math.random() * pool.length)];
+      if (!candidate || used.has(candidate.id)) continue;
+      used.add(candidate.id);
+      offers.push({
+        id: candidate.id,
+        price: shopPriceForItem(candidate)
+      });
+    }
+
+    return offers;
+  }
+
+  function collectBustLootEvents() {
+    const events = [];
+
+    state.players.forEach((player, index) => {
+      if (!player || player.isHuman) return;
+
+      const bustedThisHand = !!player.wasAliveAtHandStart && player.chips <= 0;
+      player.wasAliveAtHandStart = player.chips > 0;
+      if (!bustedThisHand) return;
+
+      applyBountyHunterRewardsForBust(index);
+
+      const pulled = pullRandomItemFromPlayer(player);
+      if (!pulled || !ITEM_DB[pulled.id]) {
+        logHistory(`${player.name} busted with no relic to loot.`, "loot");
+        return;
+      }
+
+      const item = ITEM_DB[pulled.id];
+      events.push({
+        sourceIndex: index,
+        sourceName: player.name,
+        itemId: item.id,
+        sellValue: lootSellValue(item.id)
+      });
+      logHistory(`${player.name} busted. Loot available: ${item.name}.`, "loot");
+    });
+
+    return events;
+  }
+
+  function openNextLootModalFromQueue() {
+    const next = state.lootQueue.shift();
+    if (!next) {
+      state.currentLoot = null;
+      return false;
+    }
+
+    const item = ITEM_DB[next.itemId];
+    state.currentLoot = next;
+    state.shopVisible = false;
+    if (item) {
+      setStatus(`${next.sourceName} busted.`, `Loot: ${item.name}`);
+    } else {
+      setStatus(`${next.sourceName} busted.`, "Loot available.");
+    }
+    return true;
+  }
+
+  function openShopModal() {
+    if (!FEATURE_PHASE5_ECONOMY || state.gameOver) return false;
+    const hero = humanPlayer();
+    if (!hero || hero.chips <= 0) return false;
+
+    const offers = rollShopOffers();
+    if (offers.length === 0) return false;
+
+    state.currentLoot = null;
+    state.shopVisible = true;
+    state.shopOffers = offers;
+    state.shopRerollsLeft = SHOP_DEFAULT_REROLLS + heroExtraShopRerolls();
+    logHistory(`Black market opens with ${offers.length} offers.`, "shop");
+    setStatus("Black market open.", "Buy relics or continue.");
+    return true;
+  }
+
+  function finishPostHandEconomyFlow() {
+    clearEconomyState();
+    if (el.nextHandBtn) {
+      el.nextHandBtn.disabled = false;
+    }
+    if (el.replayBtn) {
+      el.replayBtn.disabled = state.lastHandLog.length === 0;
+    }
+    render();
+    scheduleAutoNextHand();
+  }
+
+  function continuePostHandEconomyFlow() {
+    if (openNextLootModalFromQueue()) {
+      render();
+      return;
+    }
+    if (openShopModal()) {
+      render();
+      return;
+    }
+    finishPostHandEconomyFlow();
+  }
+
+  function beginPostHandEconomyFlow() {
+    if (!FEATURE_PHASE5_ECONOMY || state.gameOver) return false;
+
+    clearEconomyState();
+    const lootEvents = collectBustLootEvents();
+    if (lootEvents.length > 0) {
+      state.lootQueue = lootEvents.slice();
+      if (openNextLootModalFromQueue()) {
+        return true;
+      }
+    }
+
+    return openShopModal();
+  }
+
+  function resolveLootDecision(mode) {
+    if (!state.currentLoot) return;
+    const hero = humanPlayer();
+    const loot = state.currentLoot;
+    const item = ITEM_DB[loot.itemId];
+    const sellAmount = Math.max(0, Number(loot.sellValue) || 0);
+
+    state.currentLoot = null;
+    if (!hero || !item) {
+      continuePostHandEconomyFlow();
+      return;
+    }
+
+    if (mode === "equip") {
+      const equipResult = equipItemToPlayer(hero, item.id, { allowReplace: true });
+      if (equipResult.ok) {
+        const replaced = equipResult.replacedId && ITEM_DB[equipResult.replacedId] ? ITEM_DB[equipResult.replacedId].name : "";
+        const sub = replaced ? `${replaced} replaced.` : "Inventory updated.";
+        setStatus(`Equipped ${item.name}.`, sub);
+        logHistory(
+          replaced
+            ? `Loot equipped: ${item.name} (replaced ${replaced}).`
+            : `Loot equipped: ${item.name}.`,
+          "loot"
+        );
+      } else {
+        hero.chips += sellAmount;
+        setStatus(`Duplicate ${item.name}.`, `Auto-sold for +${toCurrency(sellAmount)}.`);
+        logHistory(`Duplicate loot ${item.name} auto-sold for ${toCurrency(sellAmount)}.`, "loot");
+        playSfx("chip", { amount: sellAmount });
+      }
+    } else {
+      hero.chips += sellAmount;
+      setStatus(`Sold ${item.name}.`, `+${toCurrency(sellAmount)} chips.`);
+      logHistory(`Loot sold: ${item.name} for ${toCurrency(sellAmount)}.`, "loot");
+      playSfx("chip", { amount: sellAmount });
+    }
+
+    continuePostHandEconomyFlow();
+  }
+
+  function buyShopOffer(itemId) {
+    if (!state.shopVisible || !itemId) return;
+    const hero = humanPlayer();
+    if (!hero) return;
+
+    const offerIndex = state.shopOffers.findIndex((offer) => offer.id === itemId);
+    if (offerIndex < 0) return;
+
+    const offer = state.shopOffers[offerIndex];
+    const item = ITEM_DB[itemId];
+    if (!item) return;
+
+    if (hero.chips < offer.price) {
+      setStatus("Not enough chips.", `Need ${toCurrency(offer.price)} for ${item.name}.`);
+      render();
+      return;
+    }
+
+    const equipResult = equipItemToPlayer(hero, item.id, { allowReplace: true });
+    if (!equipResult.ok) {
+      const reason = equipResult.reason === "duplicate" ? "Already owned." : "No item slot available.";
+      setStatus(`Cannot buy ${item.name}.`, reason);
+      render();
+      return;
+    }
+
+    hero.chips -= offer.price;
+    state.shopOffers.splice(offerIndex, 1);
+    const replaced = equipResult.replacedId && ITEM_DB[equipResult.replacedId] ? ITEM_DB[equipResult.replacedId].name : "";
+    setStatus(`Purchased ${item.name}.`, replaced ? `${replaced} replaced.` : `-${toCurrency(offer.price)} chips.`);
+    logHistory(
+      replaced
+        ? `Shop buy: ${item.name} for ${toCurrency(offer.price)} (replaced ${replaced}).`
+        : `Shop buy: ${item.name} for ${toCurrency(offer.price)}.`,
+      "shop"
+    );
+    playSfx("chip", { amount: offer.price });
+    render();
+  }
+
+  function rerollShopOffers() {
+    if (!state.shopVisible) return;
+    const hero = humanPlayer();
+    if (!hero) return;
+
+    const cost = shopRerollCost();
+    if (state.shopRerollsLeft <= 0) {
+      setStatus("No rerolls left.", "Continue to next hand.");
+      render();
+      return;
+    }
+    if (hero.chips < cost) {
+      setStatus("Not enough chips.", `Reroll costs ${toCurrency(cost)}.`);
+      render();
+      return;
+    }
+
+    hero.chips -= cost;
+    state.shopRerollsLeft -= 1;
+    state.shopOffers = rollShopOffers();
+    setStatus("Shop rerolled.", `Spent ${toCurrency(cost)} chips.`);
+    logHistory(`Shop reroll: -${toCurrency(cost)} chips.`, "shop");
+    playSfx("chip", { amount: cost });
+    render();
+  }
+
+  function closeShopModal() {
+    if (!state.shopVisible) return;
+    logHistory("Black market closed.", "shop");
+    finishPostHandEconomyFlow();
   }
 
   function clearCurrentHandHistory() {
@@ -802,6 +2424,8 @@
   }
 
   function loadPreferences() {
+    loadMetaState();
+
     let storedSkin = "classic";
     let tutorialHidden = false;
     let soundEnabled = true;
@@ -818,6 +2442,7 @@
     applyPerformanceMode(storedPerformance, { persist: false });
     setTutorialVisibility(tutorialHidden);
     audio.enabled = soundEnabled;
+    applyMetaToPlayers({ refillHeroChips: true });
     setSoundToggleUi();
   }
 
@@ -838,6 +2463,77 @@
     if (el.homeSoundBtn) {
       el.homeSoundBtn.textContent = audio.enabled ? "Sound On" : "Sound Off";
       el.homeSoundBtn.classList.toggle("off", !audio.enabled);
+    }
+  }
+
+  function renderMetaLobby() {
+    if (el.metaBloodCoins) {
+      el.metaBloodCoins.textContent = toCurrency(Math.max(0, Number(state.meta.bloodCoins) || 0));
+    }
+    if (el.metaRunCoins) {
+      const runCoins = Math.max(0, Number(state.runBloodCoins) || 0);
+      const settled = Math.max(0, Number(state.lastSettledBloodCoins) || 0);
+      if (state.gameOver && settled > 0) {
+        el.metaRunCoins.textContent = `이번 런 정산 +${toCurrency(settled)}`;
+      } else {
+        el.metaRunCoins.textContent = `현재 런 +${toCurrency(runCoins)}`;
+      }
+    }
+
+    const bankrollLevel = metaLevel("bankroll");
+    const rerollLevel = metaLevel("reroll");
+    const slotLevel = metaLevel("slots");
+
+    if (el.metaBankrollValue) {
+      el.metaBankrollValue.textContent = `${toCurrency(heroStartingChips())} Chips`;
+    }
+    if (el.metaBankrollLevel) {
+      el.metaBankrollLevel.textContent = `Lv ${bankrollLevel} / ${META_UPGRADE_TREE.bankroll.maxLevel}`;
+    }
+    if (el.metaRerollValue) {
+      el.metaRerollValue.textContent = `+${toCurrency(heroExtraShopRerolls())} Rerolls`;
+    }
+    if (el.metaRerollLevel) {
+      el.metaRerollLevel.textContent = `Lv ${rerollLevel} / ${META_UPGRADE_TREE.reroll.maxLevel}`;
+    }
+    if (el.metaSlotsValue) {
+      el.metaSlotsValue.textContent = `${heroItemSlotCount()} Slots`;
+    }
+    if (el.metaSlotsLevel) {
+      el.metaSlotsLevel.textContent = `Lv ${slotLevel} / ${META_UPGRADE_TREE.slots.maxLevel}`;
+    }
+
+    const bankrollCost = nextMetaUpgradeCost("bankroll");
+    if (el.upgradeBankrollBtn) {
+      if (bankrollCost === null) {
+        el.upgradeBankrollBtn.textContent = "MAX";
+        el.upgradeBankrollBtn.disabled = true;
+      } else {
+        el.upgradeBankrollBtn.textContent = `Upgrade ${toCurrency(bankrollCost)}`;
+        el.upgradeBankrollBtn.disabled = state.meta.bloodCoins < bankrollCost;
+      }
+    }
+
+    const rerollCost = nextMetaUpgradeCost("reroll");
+    if (el.upgradeRerollBtn) {
+      if (rerollCost === null) {
+        el.upgradeRerollBtn.textContent = "MAX";
+        el.upgradeRerollBtn.disabled = true;
+      } else {
+        el.upgradeRerollBtn.textContent = `Upgrade ${toCurrency(rerollCost)}`;
+        el.upgradeRerollBtn.disabled = state.meta.bloodCoins < rerollCost;
+      }
+    }
+
+    const slotCost = nextMetaUpgradeCost("slots");
+    if (el.upgradeSlotsBtn) {
+      if (slotCost === null) {
+        el.upgradeSlotsBtn.textContent = "MAX";
+        el.upgradeSlotsBtn.disabled = true;
+      } else {
+        el.upgradeSlotsBtn.textContent = `Upgrade ${toCurrency(slotCost)}`;
+        el.upgradeSlotsBtn.disabled = state.meta.bloodCoins < slotCost;
+      }
     }
   }
 
@@ -1164,6 +2860,44 @@
       scheduleTone({ type: "triangle", freq: 349, gain: 0.08, duration: 0.08, release: 0.14 });
       scheduleTone({ type: "triangle", freq: 523, gain: 0.085, duration: 0.12, release: 0.16 });
       scheduleTone({ type: "triangle", freq: 698, gain: 0.085, duration: 0.18, release: 0.2 });
+      return;
+    }
+
+    if (type === "item_proc") {
+      const procType = String(payload.type || "mult");
+      if (procType === "gold") {
+        scheduleTone({ type: "triangle", freq: 622, gain: 0.08, duration: 0.08, release: 0.12 });
+        scheduleTone({ type: "triangle", freq: 784, gain: 0.085, duration: 0.11, release: 0.15 });
+        scheduleNoiseClick({ gain: 0.048, duration: 0.055 });
+        return;
+      }
+      if (procType === "allin") {
+        scheduleTone({ type: "sawtooth", freq: 262, gain: 0.09, duration: 0.08, release: 0.14 });
+        scheduleTone({ type: "sawtooth", freq: 392, gain: 0.09, duration: 0.1, release: 0.16 });
+        scheduleNoiseClick({ gain: 0.07, duration: 0.08 });
+        return;
+      }
+      if (procType === "shield") {
+        scheduleTone({ type: "triangle", freq: 392, gain: 0.075, duration: 0.08, release: 0.13 });
+        scheduleTone({ type: "triangle", freq: 494, gain: 0.078, duration: 0.1, release: 0.16 });
+        scheduleNoiseClick({ gain: 0.046, duration: 0.05 });
+        return;
+      }
+      if (procType === "bounty") {
+        scheduleTone({ type: "triangle", freq: 466, gain: 0.078, duration: 0.08, release: 0.12 });
+        scheduleTone({ type: "triangle", freq: 622, gain: 0.082, duration: 0.1, release: 0.15 });
+        scheduleNoiseClick({ gain: 0.052, duration: 0.06 });
+        return;
+      }
+      if (procType === "foresight") {
+        scheduleTone({ type: "triangle", freq: 587, gain: 0.072, duration: 0.07, release: 0.12 });
+        scheduleTone({ type: "triangle", freq: 740, gain: 0.076, duration: 0.09, release: 0.14 });
+        scheduleNoiseClick({ gain: 0.043, duration: 0.045 });
+        return;
+      }
+      scheduleTone({ type: "triangle", freq: 523, gain: 0.07, duration: 0.07, release: 0.12 });
+      scheduleTone({ type: "triangle", freq: 659, gain: 0.07, duration: 0.09, release: 0.14 });
+      scheduleNoiseClick({ gain: 0.04, duration: 0.04 });
     }
   }
 
@@ -1174,10 +2908,16 @@
       state.stageBannerTimer = null;
     }
 
-    el.stageBanner.classList.remove("stage-clear", "stage-start", "show");
+    el.stageBanner.classList.remove("stage-clear", "stage-start", "balance-hot", "balance-cold", "balance-ok", "show");
     el.stageBannerTitle.textContent = title;
     el.stageBannerSub.textContent = sub;
-    el.stageBanner.classList.add(tone === "stage-clear" ? "stage-clear" : "stage-start");
+    if (tone === "stage-clear") {
+      el.stageBanner.classList.add("stage-clear");
+    } else if (tone === "balance-hot" || tone === "balance-cold" || tone === "balance-ok") {
+      el.stageBanner.classList.add(tone);
+    } else {
+      el.stageBanner.classList.add("stage-start");
+    }
 
     window.requestAnimationFrame(() => {
       el.stageBanner.classList.add("show");
@@ -1270,6 +3010,9 @@
   function sync3DPlayerState(index, player, holeCount, revealCards, cards) {
     if (!window.Poker3D || typeof window.Poker3D.setPlayerState !== "function") return;
     const hidePeekHud = state.holePeek && !state.handOver;
+    const itemIds = normalizePlayerItems(player)
+      .map((item) => item && item.id)
+      .filter(Boolean);
 
     window.Poker3D.setPlayerState(index, {
       isHuman: player.isHuman,
@@ -1281,7 +3024,8 @@
       reveal: revealCards,
       actionLabel: hidePeekHud ? "" : player.lastAction || "",
       actionTone: hidePeekHud ? "" : player.actionTone || "",
-      cards: (cards || []).map((card) => ({ rank: card.rank, suit: card.suit }))
+      cards: (cards || []).map((card) => ({ rank: card.rank, suit: card.suit, isJoker: !!card.isJoker })),
+      itemIds
     });
   }
 
@@ -1319,7 +3063,7 @@
   }
 
   function canAutoStartNextHand() {
-    return state.handOver && !state.replayInProgress && !state.gameOver;
+    return state.handOver && !state.replayInProgress && !state.gameOver && !isEconomyModalOpen();
   }
 
   function scheduleAutoNextHand() {
@@ -1387,6 +3131,163 @@
     if (!window.Poker3D || typeof window.Poker3D.throwChips !== "function") return;
     if (amount <= 0) return;
     window.Poker3D.throwChips({ seatIndex, amount, duration: 560 });
+  }
+
+  function itemProcClass(effectType) {
+    if (effectType === "gold") return "item-proc-gold";
+    if (effectType === "allin") return "item-proc-allin";
+    if (effectType === "shield") return "item-proc-shield";
+    if (effectType === "bounty") return "item-proc-bounty";
+    if (effectType === "foresight") return "item-proc-foresight";
+    return "item-proc-mult";
+  }
+
+  function itemProcToneRgb(effectType) {
+    if (effectType === "gold") return "255, 214, 122";
+    if (effectType === "allin") return "255, 141, 126";
+    if (effectType === "shield") return "162, 206, 255";
+    if (effectType === "bounty") return "255, 216, 134";
+    if (effectType === "foresight") return "146, 248, 206";
+    return "121, 195, 255";
+  }
+
+  function itemProcRune(effectType) {
+    if (effectType === "gold") return "✦";
+    if (effectType === "allin") return "⚡";
+    if (effectType === "shield") return "⌖";
+    if (effectType === "bounty") return "⛃";
+    if (effectType === "foresight") return "◉";
+    return "✧";
+  }
+
+  function itemProcSparkCount(effectType) {
+    if (effectType === "allin") return 18;
+    if (effectType === "gold") return 14;
+    if (effectType === "foresight") return 12;
+    return 10;
+  }
+
+  function triggerOverlayItemProcBurst(seatIndex, effectType, label, toneClass) {
+    if (!el.tableScene || !el.itemOverlayLayer || !Array.isArray(el.itemOverlaySlots)) return;
+    if (!el.tableScene.classList.contains("mode-3d")) return;
+
+    const slotEl = el.itemOverlaySlots.find((slot) => Number(slot.dataset.overlaySeat) === seatIndex);
+    if (!slotEl) return;
+
+    const burst = document.createElement("span");
+    burst.className = `item-overlay-proc-burst ${toneClass}`;
+    burst.style.setProperty("--item-proc-rgb", itemProcToneRgb(effectType));
+
+    const ring = document.createElement("span");
+    ring.className = "item-overlay-proc-ring";
+    burst.appendChild(ring);
+
+    const glow = document.createElement("span");
+    glow.className = "item-overlay-proc-glow";
+    burst.appendChild(glow);
+
+    const text = document.createElement("span");
+    text.className = "item-overlay-proc-text";
+    text.textContent = String(label || "아이템 발동");
+    burst.appendChild(text);
+
+    slotEl.appendChild(burst);
+    window.setTimeout(() => {
+      burst.remove();
+    }, 1180);
+  }
+
+  function play3DItemEffect(seatIndex, effectType, label = "", itemId = "") {
+    if (!window.Poker3D || typeof window.Poker3D.playItemEffect !== "function") return;
+    window.Poker3D.playItemEffect(seatIndex, {
+      type: effectType,
+      label: String(label || ""),
+      itemId: String(itemId || "")
+    });
+  }
+
+  function triggerItemProcEffect(seatIndex, effectType, label, itemId = "") {
+    if (!Number.isInteger(seatIndex) || seatIndex < 0 || seatIndex >= state.players.length) return;
+
+    const seatEl = el.seats[seatIndex];
+    const inner = seatEl ? seatEl.querySelector(".seat-inner") : null;
+    const toneClass = itemProcClass(effectType);
+
+    if (seatEl && inner) {
+      seatEl.classList.remove(
+        "item-proc",
+        "item-proc-mult",
+        "item-proc-gold",
+        "item-proc-allin",
+        "item-proc-shield",
+        "item-proc-bounty",
+        "item-proc-foresight"
+      );
+      // Restart animation when effects trigger repeatedly.
+      void seatEl.offsetWidth;
+      seatEl.classList.add("item-proc", toneClass);
+
+      const burst = document.createElement("div");
+      burst.className = `item-proc-burst ${toneClass}`;
+      burst.style.setProperty("--item-proc-rgb", itemProcToneRgb(effectType));
+
+      const ring = document.createElement("span");
+      ring.className = "item-proc-ring";
+      burst.appendChild(ring);
+
+      const shine = document.createElement("span");
+      shine.className = "item-proc-shine";
+      burst.appendChild(shine);
+
+      const particles = document.createElement("span");
+      particles.className = "item-proc-particles";
+      const sparkCount = itemProcSparkCount(effectType);
+      for (let i = 0; i < sparkCount; i += 1) {
+        const spark = document.createElement("span");
+        spark.className = "item-proc-spark";
+        spark.style.setProperty("--spark-angle", `${(360 / sparkCount) * i + (Math.random() * 18 - 9)}deg`);
+        spark.style.setProperty("--spark-dist", `${56 + Math.random() * 38}px`);
+        spark.style.setProperty("--spark-delay", `${Math.random() * 0.08}s`);
+        spark.style.setProperty("--spark-size", `${4 + Math.random() * 4}px`);
+        particles.appendChild(spark);
+      }
+      burst.appendChild(particles);
+
+      const rune = document.createElement("span");
+      rune.className = "item-proc-rune";
+      rune.textContent = itemProcRune(effectType);
+      burst.appendChild(rune);
+
+      const text = document.createElement("span");
+      text.className = "item-proc-label";
+      text.textContent = String(label || "아이템 발동");
+      burst.appendChild(text);
+
+      inner.appendChild(burst);
+
+      window.setTimeout(() => {
+        burst.remove();
+      }, 980);
+
+      window.setTimeout(() => {
+        seatEl.classList.remove(
+          "item-proc",
+          "item-proc-mult",
+          "item-proc-gold",
+          "item-proc-allin",
+          "item-proc-shield",
+          "item-proc-bounty",
+          "item-proc-foresight"
+        );
+      }, 860);
+    }
+
+    if (itemId) {
+      trackItemProc(itemId);
+    }
+    triggerOverlayItemProcBurst(seatIndex, effectType, label, toneClass);
+    play3DItemEffect(seatIndex, effectType, label, itemId);
+    playSfx("item_proc", { type: effectType });
   }
 
   function pointFromRect(rect, layerRect, xRatio = 0.5, yRatio = 0.5) {
@@ -1545,6 +3446,19 @@
       setPlayerAction(player, `${label} ${toCurrency(posted)}`, "strong");
       logHistory(`${player.name} posts ${label} ${toCurrency(posted)}.`, "action");
       playSfx("chip", { amount: posted });
+
+      if (hasItem(player, "blind_refund")) {
+        const refundScale = itemCombinedScale("blind_refund", 0.45, 1.8);
+        const refundRate = clamp(BLIND_REFUND_RATE * refundScale, 0.05, 0.65);
+        const refund = Math.max(1, Math.floor(posted * refundRate));
+        player.chips += refund;
+        const seatIndex = state.players.indexOf(player);
+        setPlayerAction(player, `${label} ${toCurrency(posted)} · 환급 +${toCurrency(refund)}`, "strong");
+        logHistory(`${player.name} 블라인드 리베이트 발동: +${toCurrency(refund)} 환급.`, "info");
+        if (seatIndex >= 0) {
+          triggerItemProcEffect(seatIndex, "shield", `리베이트 +${toCurrency(refund)}`, "blind_refund");
+        }
+      }
     }
     return posted;
   }
@@ -1577,6 +3491,7 @@
 
   async function startHand() {
     clearAutoNextHand();
+    if (isEconomyModalOpen()) return;
     if (state.gameOver || isHeroBusted()) {
       triggerGameOver();
       render();
@@ -1596,6 +3511,12 @@
     state.autoRunoutInProgress = false;
     state.replayInProgress = false;
     state.replayEntryId = null;
+    state.handBloodCoinAwarded = false;
+    state.markedLensUsedThisHand = false;
+    state.markedLensReveal = null;
+    state.riverForesightReveal = null;
+    setHandWinnerIndices([]);
+    clearEconomyState();
     state.communityCards = [];
     state.communityVisible = 0;
     state.pot = 0;
@@ -1612,6 +3533,7 @@
     state.dealerIndex = nextIndex(state.dealerIndex, (p) => p.chips > 0);
 
     state.players.forEach((player) => {
+      player.wasAliveAtHandStart = player.chips > 0;
       player.hand = [];
       player.folded = player.chips <= 0;
       player.allIn = false;
@@ -1621,18 +3543,25 @@
       player.actionTone = "";
       player.showdown = null;
       player.invested = 0;
+      player.handStartChips = player.chips;
+      player.aggressiveActionsThisHand = 0;
+      player.reachedRiverThisHand = false;
+      player.riverForesightUsedThisHand = false;
+      player.wentAllInThisHand = false;
+      player.insuranceRefundedThisHand = false;
     });
     state.dealtHoleCounts = state.players.map(() => 0);
+    trackHandItemExposure();
     if (window.Poker3D && typeof window.Poker3D.resetForNewHand === "function") {
       window.Poker3D.resetForNewHand();
     }
 
-    state.deck = shuffle(buildDeck());
+    state.deck = shuffle(applyDeckModifiersToDeck(buildDeck()));
     const hero = humanPlayer();
     const heroAssistCards = hero && !hero.folded ? pickStageOneHeroAssistCards(state.deck) : null;
 
     for (let i = 0; i < 2; i += 1) {
-      state.players.forEach((player) => {
+      state.players.forEach((player, playerIndex) => {
         if (!player.folded) {
           if (heroAssistCards && player.isHuman) {
             const assisted = heroAssistCards[player.hand.length];
@@ -1641,7 +3570,7 @@
               return;
             }
           }
-          player.hand.push(drawCard());
+          player.hand.push(drawCard({ drawKind: "hole", street: "preflop", targetIndex: playerIndex }));
         }
       });
     }
@@ -1655,6 +3584,14 @@
       `Hand #${state.handId} starts. Stage ${state.tournamentStage + 1} ${currentStageProfile().name}. Level ${state.blindLevel + 1} (${toCurrency(state.smallBlind)}/${toCurrency(state.bigBlind)}).`,
       "street"
     );
+    const drawMods = summarizeBoardIntervention();
+    if (drawMods) {
+      logHistory(`Draw mods active: ${drawMods}.`, "info");
+    }
+    const heroDeckMods = summarizeDeckMods(hero);
+    if (heroDeckMods !== "none") {
+      logHistory(`Hero deck mods: ${heroDeckMods}.`, "info");
+    }
     if (state.handId === 1 || stageIntro) {
       const profile = currentStageProfile();
       const bonusText = profile.bonus > 0 ? ` | Bonus +${toCurrency(profile.bonus)}` : "";
@@ -1664,6 +3601,10 @@
         "stage-start",
         2300
       );
+      const loadoutLine = npcLoadoutSummary();
+      if (loadoutLine) {
+        logHistory(`NPC relics: ${loadoutLine}.`, "info");
+      }
       cue3D("stageStart");
       playSfx("stage");
     }
@@ -1776,10 +3717,28 @@
     if (!player || state.handOver || !canAct(player)) return;
 
     const toCall = Math.max(0, state.currentBet - player.currentBet);
-    const strength = estimateStrength(player);
-    const roll = Math.random();
-    const aggro = clamp(currentStageProfile().botAggro || 1, 0.55, 2.1);
+    const aggro = effectiveBotAggro(player);
     const aggroOffset = aggro - 1;
+    let strength = estimateStrength(player);
+    const roll = Math.random();
+
+    if (state.stage === "preflop" && canUseSleightOfHand(player)) {
+      const sleightThreshold = clamp(0.46 - aggroOffset * 0.08, 0.26, 0.6);
+      const sleightChance = clamp(0.68 - aggroOffset * 0.2, 0.35, 0.86);
+      if (strength < sleightThreshold && Math.random() < sleightChance) {
+        if (useSleightOfHand(player, { bot: true })) {
+          strength = estimateStrength(player);
+        }
+      }
+    }
+
+    if (canUseRiverForesight(player)) {
+      const foresightChance = clamp(0.36 - aggroOffset * 0.08, 0.18, 0.52);
+      const shouldUse = (state.stage === "turn" || strength < 0.72) && Math.random() < foresightChance;
+      if (shouldUse) {
+        useRiverForesight(player, { bot: true });
+      }
+    }
 
     if (toCall > 0) {
       const foldStrengthPreflop = clamp(0.42 - aggroOffset * 0.12, 0.24, 0.56);
@@ -1820,7 +3779,7 @@
     if (maxTotal <= state.currentBet) return state.currentBet;
 
     const minTotal = state.currentBet === 0 ? state.bigBlind : state.currentBet + state.minRaise;
-    const aggro = clamp(currentStageProfile().botAggro || 1, 0.55, 2.1);
+    const aggro = effectiveBotAggro(player);
     const aggroOffset = aggro - 1;
     const potPressure = clamp(0.24 + strength * 0.72 + aggroOffset * 0.22, 0.18, 1.25);
     let target = state.currentBet + Math.max(state.bigBlind, Math.round((state.pot * potPressure) / state.bigBlind) * state.bigBlind);
@@ -1957,6 +3916,14 @@
       });
     }
 
+    if (player.allIn && !player.folded) {
+      player.wentAllInThisHand = true;
+    }
+
+    if (actionCue === "bet" || actionCue === "raise" || actionCue === "allin") {
+      player.aggressiveActionsThisHand = Math.max(0, Math.floor(Number(player.aggressiveActionsThisHand) || 0)) + 1;
+    }
+
     stopTurnTimer();
     state.waitingForHuman = false;
     play3DAction(playerIndex, actionCue);
@@ -2021,7 +3988,30 @@
     if (contenders.length !== 1) return false;
 
     const winner = contenders[0];
-    const won = state.pot;
+    const winnerIndex = state.players.indexOf(winner);
+    setHandWinnerIndices([winnerIndex]);
+    const baseWon = state.pot;
+    let won = baseWon;
+    const allInFactor = allInWinMultiplierFor(winner);
+    if (allInFactor > 1) {
+      won = Math.floor(won * allInFactor);
+      logHistory(`${winner.name} all-in multiplier x${allInFactor} applied.`, "showdown");
+      triggerItemProcEffect(winnerIndex, "allin", `올인 배수 x${formatMultiplier(allInFactor)}`, "allin_multiplier");
+    }
+    const itemMods = itemPayoutModifiersFor(winner, winnerIndex, null);
+    if (itemMods.multiplier > 1) {
+      won = Math.floor(won * itemMods.multiplier);
+      logHistory(`${winner.name} item multiplier x${formatMultiplier(itemMods.multiplier)} applied.`, "showdown");
+      const multIds = Array.isArray(itemMods.multiplierItemIds) ? [...new Set(itemMods.multiplierItemIds)] : [];
+      triggerItemProcEffect(winnerIndex, "mult", `아이템 x${formatMultiplier(itemMods.multiplier)}`, multIds[0] || "");
+      multIds.slice(1).forEach((itemId) => trackItemProc(itemId));
+    }
+    if (itemMods.flatBonus > 0) {
+      won += itemMods.flatBonus;
+      const flatIds = Array.isArray(itemMods.flatItemIds) ? [...new Set(itemMods.flatItemIds)] : [];
+      triggerItemProcEffect(winnerIndex, "bounty", `아이템 +${toCurrency(itemMods.flatBonus)}`, flatIds[0] || "");
+      flatIds.slice(1).forEach((itemId) => trackItemProc(itemId));
+    }
     winner.chips += won;
     state.pot = 0;
     state.handOver = true;
@@ -2029,7 +4019,8 @@
 
     setPlayerAction(winner, `Won ${toCurrency(won)}`, "strong");
     setStatus(`${winner.name} wins ${toCurrency(won)} chips.`, "Everyone else folded.");
-    logHistory(`${winner.name} wins uncontested pot ${toCurrency(won)}.`, "showdown");
+    const itemSummary = itemMods.labels.length > 0 ? ` [${itemMods.labels.join(" · ")}]` : "";
+    logHistory(`${winner.name} wins uncontested pot ${toCurrency(baseWon)} -> ${toCurrency(won)}.${itemSummary}`, "showdown");
     if (winner.isHuman) {
       playSfx("win");
     }
@@ -2044,7 +4035,11 @@
     state.roundTransitioning = true;
 
     if (state.stage === "preflop") {
-      state.communityCards.push(drawCard(), drawCard(), drawCard());
+      state.communityCards.push(
+        drawCommunityCardForStreet("flop"),
+        drawCard({ drawKind: "community", street: "flop" }),
+        drawCard({ drawKind: "community", street: "flop" })
+      );
       setStatus("Dealer throws the flop.", "Three cards hit the felt.");
       logHistory("Flop incoming.", "street");
       cue3D("boardFocus");
@@ -2066,7 +4061,7 @@
     }
 
     if (state.stage === "flop") {
-      state.communityCards.push(drawCard());
+      state.communityCards.push(drawCommunityCardForStreet("turn"));
       setStatus("Dealer fires the turn.", "Fourth board card incoming.");
       logHistory("Turn incoming.", "street");
       cue3D("boardFocus");
@@ -2088,7 +4083,7 @@
     }
 
     if (state.stage === "turn") {
-      state.communityCards.push(drawCard());
+      state.communityCards.push(drawCommunityCardForStreet("river"));
       setStatus("Dealer launches the river.", "Final board card incoming.");
       logHistory("River incoming.", "street");
       cue3D("boardFocus");
@@ -2102,6 +4097,12 @@
       }
 
       state.stage = "river";
+      state.players.forEach((player) => {
+        if (!player) return;
+        if (!player.folded && player.wasAliveAtHandStart) {
+          player.reachedRiverThisHand = true;
+        }
+      });
       setStatus("River card dealt.", "Final betting round.");
       logHistory(`River: ${state.communityCards[4] ? cardText(state.communityCards[4]) : "-"}`, "street");
       state.roundTransitioning = false;
@@ -2218,10 +4219,157 @@
     return ordered;
   }
 
+  function handMultiplierFor(player, evalResult) {
+    const mods = normalizedDeckMods(player);
+    let multiplier = 1;
+
+    mods.forEach((mod) => {
+      if (mod.type !== "hand_multiplier") return;
+      const byRank = Number.isInteger(mod.handRank) && mod.handRank === evalResult.rank;
+      const byName = typeof mod.handName === "string" && mod.handName === evalResult.name;
+      if (!byRank && !byName) return;
+
+      const factor = Number(mod.multiplier);
+      if (!Number.isFinite(factor) || factor <= 1) return;
+      multiplier *= factor;
+    });
+
+    return Math.max(1, multiplier);
+  }
+
+  function handStartAverageChips() {
+    const stacks = state.players
+      .filter((player) => player && player.wasAliveAtHandStart)
+      .map((player) => Math.max(0, Number(player.handStartChips) || 0))
+      .filter((stack) => stack > 0);
+    if (stacks.length <= 0) return 0;
+    const sum = stacks.reduce((acc, stack) => acc + stack, 0);
+    return sum / stacks.length;
+  }
+
+  function isUnderdogThisHand(player) {
+    if (!player || !player.wasAliveAtHandStart) return false;
+    const start = Math.max(0, Number(player.handStartChips) || 0);
+    if (start <= 0) return false;
+    const average = handStartAverageChips();
+    if (average <= 0) return false;
+    return start <= average * 0.8;
+  }
+
+  function itemPayoutModifiersFor(player, playerIndex, splitWinnerIndices) {
+    let multiplier = 1;
+    let flatBonus = 0;
+    const labels = [];
+    const multiplierItemIds = [];
+    const flatItemIds = [];
+
+    if (hasItem(player, "underdog_emblem") && isUnderdogThisHand(player)) {
+      const scale = itemCombinedScale("underdog_emblem", 0.45, 1.9);
+      const underdogMult = 1 + (UNDERDOG_EMBLEM_MULTIPLIER - 1) * scale;
+      multiplier *= underdogMult;
+      labels.push(`언더독 x${formatMultiplier(underdogMult)}`);
+      multiplierItemIds.push("underdog_emblem");
+    }
+
+    if (hasItem(player, "triple_barrel")) {
+      const aggroCount = Math.max(0, Math.floor(Number(player.aggressiveActionsThisHand) || 0));
+      if (aggroCount >= 2) {
+        const scale = itemCombinedScale("triple_barrel", 0.45, 1.9);
+        const step = TRIPLE_BARREL_STEP * scale;
+        const factor = 1 + Math.min(3, aggroCount) * step;
+        multiplier *= factor;
+        labels.push(`트리플 배럴 x${formatMultiplier(factor)}`);
+        multiplierItemIds.push("triple_barrel");
+      }
+    }
+
+    if (hasItem(player, "river_surfer") && player.reachedRiverThisHand) {
+      const scale = itemCombinedScale("river_surfer", 0.45, 1.9);
+      const bonus = Math.max(1, Math.floor(RIVER_SURFER_BONUS * scale));
+      flatBonus += bonus;
+      labels.push(`리버 생존 +${toCurrency(bonus)}`);
+      flatItemIds.push("river_surfer");
+    }
+
+    if (splitWinnerIndices && splitWinnerIndices.has(playerIndex) && hasItem(player, "split_guard")) {
+      const scale = itemCombinedScale("split_guard", 0.45, 1.9);
+      const bonus = Math.max(1, Math.floor(SPLIT_GUARD_BONUS * scale));
+      flatBonus += bonus;
+      labels.push(`스플릿 가드 +${toCurrency(bonus)}`);
+      flatItemIds.push("split_guard");
+    }
+
+    return {
+      multiplier: Math.max(1, multiplier),
+      flatBonus,
+      labels,
+      multiplierItemIds,
+      flatItemIds
+    };
+  }
+
+  function goldCardBonusFor(player, playerIndex, goldBonusPaidKeys) {
+    const mods = normalizedDeckMods(player);
+    let bonus = 0;
+
+    mods.forEach((mod, modIndex) => {
+      if (mod.type !== "gold_card") return;
+      const rank = Number(mod.rank);
+      const suit = String(mod.suit || "");
+      if (!Number.isFinite(rank) || !suit) return;
+
+      const key = `${playerIndex}:${modIndex}:${rank}${suit}`;
+      if (goldBonusPaidKeys.has(key)) return;
+
+      const ownsCard = (player.hand || []).some((card) => card && !card.isJoker && card.rank === rank && card.suit === suit);
+      if (!ownsCard) return;
+
+      const add = Math.max(0, Math.floor(Number(mod.bonus) || 0));
+      if (add <= 0) return;
+
+      goldBonusPaidKeys.add(key);
+      bonus += add;
+    });
+
+    return bonus;
+  }
+
+  // Payout order is explicit:
+  // base side-pot share -> deck hand multiplier -> all-in multiplier -> item multiplier -> gold-card bonus -> item flat bonus.
+  function resolvePayoutAward({ player, playerIndex, evalResult, baseShare, goldBonusPaidKeys, splitWinnerIndices }) {
+    const safeBase = Math.max(0, Math.floor(Number(baseShare) || 0));
+    const handMult = handMultiplierFor(player, evalResult);
+    const handMultiplied = Math.floor(safeBase * handMult);
+    const allInMult = allInWinMultiplierFor(player);
+    const multiplied = Math.floor(handMultiplied * allInMult);
+    const itemMods = itemPayoutModifiersFor(player, playerIndex, splitWinnerIndices);
+    const itemMult = itemMods.multiplier;
+    const itemMultiplied = Math.floor(multiplied * itemMult);
+    const goldBonus = goldCardBonusFor(player, playerIndex, goldBonusPaidKeys);
+    const itemFlatBonus = itemMods.flatBonus;
+    const total = itemMultiplied + goldBonus + itemFlatBonus;
+    return {
+      baseShare: safeBase,
+      handMult,
+      handMultiplied,
+      allInMult,
+      multiplied,
+      itemMult,
+      itemMultiplied,
+      goldBonus,
+      itemFlatBonus,
+      itemLabels: itemMods.labels,
+      itemMultiplierIds: itemMods.multiplierItemIds,
+      itemFlatIds: itemMods.flatItemIds,
+      total
+    };
+  }
+
   function showdown() {
     cue3D("showdown");
     const contenders = playersInHand();
     if (contenders.length === 0) {
+      setHandWinnerIndices([]);
       state.handOver = true;
       finalizeHand();
       render();
@@ -2252,6 +4400,9 @@
     }
 
     const payouts = new Map();
+    const payoutDetails = new Map();
+    const goldBonusPaidKeys = new Set();
+    const splitWinnerIndices = new Set();
     let primaryWinners = [];
     let primaryName = "";
 
@@ -2267,6 +4418,9 @@
       }
 
       const winners = eligibleEntries.filter((entry) => compareEval(entry.result, best.result) === 0);
+      if (winners.length > 1) {
+        winners.forEach((entry) => splitWinnerIndices.add(entry.index));
+      }
       const payoutOrder = seatOrderFromButton(winners.map((entry) => entry.index))
         .map((index) => winners.find((entry) => entry.index === index))
         .filter(Boolean);
@@ -2274,9 +4428,54 @@
       const each = Math.floor(pot.amount / winners.length);
       let remainder = pot.amount - each * winners.length;
       payoutOrder.forEach((entry) => {
-        const bonus = remainder > 0 ? 1 : 0;
+        const chip = remainder > 0 ? 1 : 0;
         if (remainder > 0) remainder -= 1;
-        payouts.set(entry.index, (payouts.get(entry.index) || 0) + each + bonus);
+        const baseShare = each + chip;
+        const award = resolvePayoutAward({
+          player: entry.player,
+          playerIndex: entry.index,
+          evalResult: entry.result,
+          baseShare,
+          goldBonusPaidKeys,
+          splitWinnerIndices
+        });
+
+        payouts.set(entry.index, (payouts.get(entry.index) || 0) + award.total);
+        if (!payoutDetails.has(entry.index)) {
+          payoutDetails.set(entry.index, {
+            base: 0,
+            handMultiplied: 0,
+            multiplied: 0,
+            itemMultiplied: 0,
+            allInApplied: 0,
+            gold: 0,
+            itemFlat: 0,
+            itemLabels: [],
+            itemMultiplierIds: [],
+            itemFlatIds: [],
+            total: 0
+          });
+        }
+        const detail = payoutDetails.get(entry.index);
+        detail.base += award.baseShare;
+        detail.handMultiplied += award.handMultiplied;
+        detail.multiplied += award.multiplied;
+        detail.itemMultiplied += award.itemMultiplied;
+        if (award.allInMult > 1) {
+          detail.allInApplied += 1;
+        }
+        detail.gold += award.goldBonus;
+        detail.itemFlat += award.itemFlatBonus;
+        if (Array.isArray(award.itemLabels) && award.itemLabels.length > 0) {
+          detail.itemLabels.push(...award.itemLabels);
+        }
+        if (Array.isArray(award.itemMultiplierIds) && award.itemMultiplierIds.length > 0) {
+          detail.itemMultiplierIds.push(...award.itemMultiplierIds);
+        }
+        if (Array.isArray(award.itemFlatIds) && award.itemFlatIds.length > 0) {
+          detail.itemFlatIds.push(...award.itemFlatIds);
+        }
+        detail.total += award.total;
       });
 
       const label = potIndex === 0 ? "Main pot" : `Side pot ${potIndex}`;
@@ -2289,10 +4488,81 @@
       }
     });
 
+    const heroWinningEntry = evaluated.find((entry) => entry.player.isHuman && primaryWinners.includes(entry.player));
+    if (heroWinningEntry && !state.handBloodCoinAwarded) {
+      const bonus = Math.max(0, Number(BLOOD_COIN_HIGH_HAND_BONUS[heroWinningEntry.result.rank]) || 0);
+      if (bonus > 0) {
+        state.handBloodCoinAwarded = true;
+        addRunBloodCoins(bonus, `${heroWinningEntry.result.name} bonus`);
+      }
+    }
+
     payouts.forEach((amount, index) => {
       const player = state.players[index];
       player.chips += amount;
       setPlayerAction(player, `Won ${toCurrency(amount)}`, "strong");
+    });
+
+    setHandWinnerIndices([...payouts.keys()]);
+    applyInsuranceRefunds();
+
+    payouts.forEach((amount, index) => {
+      const player = state.players[index];
+      const detail = payoutDetails.get(index);
+      if (!player || !detail) return;
+
+      const handMultPart = detail.handMultiplied !== detail.base ? `, hand-mult ${toCurrency(detail.handMultiplied)}` : "";
+      const allInPart = detail.multiplied !== detail.handMultiplied ? `, all-in mult ${toCurrency(detail.multiplied)}` : "";
+      const itemMultPart = detail.itemMultiplied !== detail.multiplied ? `, item-mult ${toCurrency(detail.itemMultiplied)}` : "";
+      const goldPart = detail.gold > 0 ? `, gold +${toCurrency(detail.gold)}` : "";
+      const itemFlatPart = detail.itemFlat > 0 ? `, item +${toCurrency(detail.itemFlat)}` : "";
+      const itemLabelPart = detail.itemLabels.length > 0 ? ` [${[...new Set(detail.itemLabels)].join(" · ")}]` : "";
+      logHistory(
+        `${player.name} payout ${toCurrency(amount)} (base ${toCurrency(detail.base)}${handMultPart}${allInPart}${itemMultPart}${goldPart}${itemFlatPart})${itemLabelPart}.`,
+        "showdown"
+      );
+
+      const fxQueue = [];
+      const handFactor = detail.base > 0 ? detail.handMultiplied / detail.base : 1;
+      const allInFactor = detail.handMultiplied > 0 ? detail.multiplied / detail.handMultiplied : 1;
+      const itemFactor = detail.multiplied > 0 ? detail.itemMultiplied / detail.multiplied : 1;
+      const uniqueItemMultiplierIds = [...new Set(detail.itemMultiplierIds || [])];
+      const uniqueItemFlatIds = [...new Set(detail.itemFlatIds || [])];
+      if (handFactor > 1.001) {
+        fxQueue.push({ type: "mult", label: `배수 x${formatMultiplier(handFactor)}` });
+      }
+      if (allInFactor > 1.001) {
+        fxQueue.push({ type: "allin", label: `올인 x${formatMultiplier(allInFactor)}`, itemId: "allin_multiplier" });
+      }
+      if (itemFactor > 1.001) {
+        fxQueue.push({
+          type: "mult",
+          label: `아이템 x${formatMultiplier(itemFactor)}`,
+          itemId: uniqueItemMultiplierIds[0] || "",
+          extraItemIds: uniqueItemMultiplierIds.slice(1)
+        });
+      }
+      if (detail.gold > 0) {
+        fxQueue.push({ type: "gold", label: `골드 +${toCurrency(detail.gold)}` });
+      }
+      if (detail.itemFlat > 0) {
+        fxQueue.push({
+          type: "bounty",
+          label: `아이템 +${toCurrency(detail.itemFlat)}`,
+          itemId: uniqueItemFlatIds[0] || "",
+          extraItemIds: uniqueItemFlatIds.slice(1)
+        });
+      }
+      fxQueue.forEach((fx, fxIndex) => {
+        window.setTimeout(() => {
+          triggerItemProcEffect(index, fx.type, fx.label, fx.itemId || "");
+          if (Array.isArray(fx.extraItemIds) && fx.extraItemIds.length > 0) {
+            fx.extraItemIds.forEach((itemId) => {
+              trackItemProc(itemId);
+            });
+          }
+        }, fxIndex * 220);
+      });
     });
 
     state.handOver = true;
@@ -2335,6 +4605,7 @@
     state.lastHandLog = state.currentHandLog.slice();
     setDealerThrowing(false);
     clearDealLayer();
+    maybeLogBalanceSummary();
 
     if (isHeroBusted()) {
       if (el.replayBtn) {
@@ -2346,6 +4617,16 @@
     }
 
     queueTournamentAdvanceIfCleared();
+    if (beginPostHandEconomyFlow()) {
+      if (el.nextHandBtn) {
+        el.nextHandBtn.disabled = true;
+      }
+      if (el.replayBtn) {
+        el.replayBtn.disabled = true;
+      }
+      return;
+    }
+
     el.nextHandBtn.disabled = false;
     if (el.replayBtn) {
       el.replayBtn.disabled = state.lastHandLog.length === 0;
@@ -2387,7 +4668,7 @@
     }
   }
 
-  function evaluateSeven(cards) {
+  function evaluateSevenNoJoker(cards) {
     const ranks = cards.map((c) => c.rank);
     const rankCount = new Map();
     const suitBuckets = new Map();
@@ -2518,6 +4799,40 @@
     };
   }
 
+  function evaluateSeven(cards) {
+    const usableCards = (cards || []).filter(Boolean);
+    const nonJokers = usableCards.filter((card) => !card.isJoker);
+    const jokerCount = usableCards.length - nonJokers.length;
+
+    if (jokerCount <= 0) {
+      return evaluateSevenNoJoker(nonJokers);
+    }
+
+    const cappedJokers = Math.min(2, jokerCount);
+    let bestResult = null;
+
+    const search = (depth, replacementCards) => {
+      if (depth >= cappedJokers) {
+        const result = evaluateSevenNoJoker([...nonJokers, ...replacementCards]);
+        if (!bestResult || compareEval(result, bestResult) > 0) {
+          bestResult = result;
+        }
+        return;
+      }
+
+      for (const suit of SUITS) {
+        for (const rank of RANKS) {
+          replacementCards.push({ rank, suit, fromJoker: true });
+          search(depth + 1, replacementCards);
+          replacementCards.pop();
+        }
+      }
+    };
+
+    search(0, []);
+    return bestResult || evaluateSevenNoJoker(nonJokers);
+  }
+
   function findStraightHigh(rankList) {
     const set = new Set(rankList);
     if (set.has(14)) {
@@ -2643,6 +4958,7 @@
   function render() {
     setSoundToggleUi();
     setPerformanceToggleUi();
+    renderMetaLobby();
     if (el.stageInfo) {
       const stageProfile = currentStageProfile();
       const pending = state.pendingStageAdvance ? " · CLEAR" : "";
@@ -2668,14 +4984,32 @@
     renderCornerCardsHud();
     renderInHandReadout();
     renderSeats();
+    renderItemOverlays();
     renderShowdownPanel();
+    renderLootModal();
+    renderShopModal();
     renderControls();
     sync3DTableState();
     setGameOverVisibility(state.gameOver);
 
-    el.nextHandBtn.disabled = state.gameOver || !state.handOver || state.replayInProgress;
+    el.nextHandBtn.disabled = state.gameOver || !state.handOver || state.replayInProgress || isEconomyModalOpen();
     if (el.replayBtn) {
-      el.replayBtn.disabled = state.gameOver || !state.handOver || state.replayInProgress || state.lastHandLog.length === 0;
+      el.replayBtn.disabled =
+        state.gameOver ||
+        !state.handOver ||
+        state.replayInProgress ||
+        isEconomyModalOpen() ||
+        state.lastHandLog.length === 0;
+    }
+    if (el.autoTuneBtn) {
+      const pendingCount = getPendingAutoTuneEntries(4).length;
+      el.autoTuneBtn.textContent = pendingCount > 0 ? `Auto Tune ${pendingCount}` : "Auto Tune";
+      el.autoTuneBtn.disabled =
+        state.gameOver ||
+        !state.handOver ||
+        state.replayInProgress ||
+        isEconomyModalOpen() ||
+        pendingCount <= 0;
     }
   }
 
@@ -2701,7 +5035,8 @@
               .slice(0, 2)
               .map((card) => {
                 const red = card.suit === "H" || card.suit === "D" ? " red" : "";
-                return `<span class="showdown-card-tile${red}">${cardText(card)}</span>`;
+                const joker = isJokerCard(card) ? " joker" : "";
+                return `<span class="showdown-card-tile${red}${joker}">${cardText(card)}</span>`;
               })
               .join("")
           : `<span class="showdown-mucked">MUCKED</span>`;
@@ -2720,6 +5055,131 @@
 
     el.showdownPanel.classList.add("show");
     el.showdownPanel.innerHTML = `<div class="showdown-head"><span>Showdown Cards</span><span>Hand #${state.handId}</span></div><div class="showdown-list">${rows}</div>`;
+  }
+
+  function renderLootModal() {
+    if (!el.lootModal) return;
+    const loot = state.currentLoot;
+    if (!loot) {
+      el.lootModal.classList.add("hidden");
+      return;
+    }
+
+    const item = ITEM_DB[loot.itemId];
+    const hero = humanPlayer();
+    const hasDuplicate = !!(hero && item && hasItem(hero, item.id));
+    const slotCount = itemSlotCount(hero);
+    const usedSlots = normalizePlayerItemEntries(hero).length;
+    const replaceOnEquip = slotCount > 0 && usedSlots >= slotCount;
+
+    if (el.lootTitle) {
+      el.lootTitle.textContent = item ? `Loot: ${item.name}` : "Loot Found";
+    }
+    if (el.lootSub) {
+      const base = loot.sourceName ? `${loot.sourceName} went bust.` : "Opponent busted.";
+      el.lootSub.textContent = `${base} Choose equip or sell.`;
+    }
+    if (el.lootItemIcon) {
+      if (item) {
+        el.lootItemIcon.innerHTML = itemArtMarkup(item, "loot");
+      } else {
+        el.lootItemIcon.textContent = "?";
+      }
+    }
+    if (el.lootItemName) {
+      el.lootItemName.textContent = item ? item.name : "Unknown Relic";
+    }
+    if (el.lootItemDesc) {
+      el.lootItemDesc.textContent = item ? item.desc : "Relic data unavailable.";
+    }
+    if (el.lootItemEffect) {
+      el.lootItemEffect.textContent = item ? item.effect_logic : "";
+    }
+    if (el.lootEquipBtn) {
+      if (hasDuplicate) {
+        el.lootEquipBtn.textContent = "Already Owned";
+        el.lootEquipBtn.disabled = true;
+      } else if (slotCount <= 0) {
+        el.lootEquipBtn.textContent = "No Slot";
+        el.lootEquipBtn.disabled = true;
+      } else if (replaceOnEquip) {
+        el.lootEquipBtn.textContent = "Equip (Replace)";
+        el.lootEquipBtn.disabled = false;
+      } else {
+        el.lootEquipBtn.textContent = "Equip";
+        el.lootEquipBtn.disabled = false;
+      }
+    }
+    if (el.lootSellBtn) {
+      el.lootSellBtn.textContent = `Sell +${toCurrency(Math.max(0, Number(loot.sellValue) || 0))}`;
+    }
+
+    el.lootModal.classList.remove("hidden");
+  }
+
+  function renderShopModal() {
+    if (!el.shopModal) return;
+    if (!state.shopVisible) {
+      el.shopModal.classList.add("hidden");
+      return;
+    }
+
+    const hero = humanPlayer();
+    const chips = hero ? hero.chips : 0;
+    const cost = shopRerollCost();
+    const profile = currentStageProfile();
+    if (el.shopMeta) {
+      el.shopMeta.textContent =
+        `칩 ${toCurrency(chips)} · 스테이지 ${state.tournamentStage + 1} ${profile.name} · ` +
+        `리롤 ${toCurrency(cost)} (${state.shopRerollsLeft}회 남음)`;
+    }
+
+    if (el.shopOffers) {
+      const offersHtml = state.shopOffers
+        .map((offer) => {
+          const item = ITEM_DB[offer.id];
+          if (!item) return "";
+          const rarity = String(item.rarity || "normal").toLowerCase();
+          const owned = !!(hero && hasItem(hero, item.id));
+          const canAfford = chips >= offer.price;
+          const disabled = owned || !canAfford;
+          const buttonLabel = owned ? "보유중" : canAfford ? "구매" : "칩 부족";
+
+          return (
+            `<article class="shop-offer">` +
+            `<div class="shop-offer-grid">` +
+            `<div class="shop-offer-art-wrap">` +
+              itemArtMarkup(item, "shop") +
+            `</div>` +
+            `<div class="shop-offer-body">` +
+              `<div class="shop-offer-head">` +
+                `<span class="shop-offer-name">${escapeHtml(item.name)}</span>` +
+                `<span class="shop-offer-rarity ${escapeHtml(rarity)}">${escapeHtml(String(item.rarity || "normal").toUpperCase())}</span>` +
+              `</div>` +
+              `<div class="shop-offer-desc">${escapeHtml(item.desc)}</div>` +
+              `<div class="shop-offer-effect">${escapeHtml(item.effect_logic)}</div>` +
+              `<div class="shop-offer-footer">` +
+                `<span class="shop-offer-price">${toCurrency(offer.price)}</span>` +
+                `<button class="shop-buy-btn" type="button" data-buy-item="${escapeHtml(item.id)}" ${disabled ? "disabled" : ""}>${buttonLabel}</button>` +
+              `</div>` +
+            `</div>` +
+            `</div>` +
+            `</article>`
+          );
+        })
+        .filter(Boolean)
+        .join("");
+
+      el.shopOffers.innerHTML = offersHtml || `<article class="shop-offer"><div class="shop-offer-desc">판매 가능한 아이템이 없습니다. 계속 진행하세요.</div></article>`;
+    }
+
+    if (el.shopRerollBtn) {
+      const canReroll = state.shopRerollsLeft > 0 && chips >= cost;
+      el.shopRerollBtn.disabled = !canReroll;
+      el.shopRerollBtn.textContent = `리롤 ${toCurrency(cost)} (${state.shopRerollsLeft})`;
+    }
+
+    el.shopModal.classList.remove("hidden");
   }
 
   function renderCommunityCards() {
@@ -2748,7 +5208,8 @@
     const shown = visibleCards
       .map((card) => {
         const isRed = card.suit === "H" || card.suit === "D";
-        return `<span class="board-mini-card${isRed ? " red" : ""}">${cardText(card)}</span>`;
+        const isJoker = isJokerCard(card);
+        return `<span class="board-mini-card${isRed ? " red" : ""}${isJoker ? " joker" : ""}">${cardText(card)}</span>`;
       })
       .join("");
 
@@ -2770,7 +5231,8 @@
     }
 
     const isRed = card.suit === "H" || card.suit === "D";
-    return `<span class="corner-card${isRed ? " red" : ""}">${cardText(card)}</span>`;
+    const joker = isJokerCard(card) ? " joker" : "";
+    return `<span class="corner-card${isRed ? " red" : ""}${joker}">${cardText(card)}</span>`;
   }
 
   function renderCornerCardsHud() {
@@ -2856,6 +5318,207 @@
     el.inHandList.innerHTML = rows;
   }
 
+  function escapeHtml(value) {
+    return String(value ?? "").replace(/[&<>"']/g, (char) => {
+      if (char === "&") return "&amp;";
+      if (char === "<") return "&lt;";
+      if (char === ">") return "&gt;";
+      if (char === '"') return "&quot;";
+      return "&#39;";
+    });
+  }
+
+  function normalizePlayerItems(player) {
+    if (!player || !Array.isArray(player.items)) return [];
+    return player.items
+      .map((entry) => {
+        const id = typeof entry === "string" ? entry : entry && entry.id;
+        if (!id || !ITEM_DB[id]) return null;
+        return ITEM_DB[id];
+      })
+      .filter(Boolean);
+  }
+
+  function itemThemeClass(item) {
+    const id = String(item && item.id ? item.id : "")
+      .trim()
+      .toLowerCase()
+      .replace(/_/g, "-");
+    return id ? `item-${id}` : "item-generic";
+  }
+
+  function itemSymbol(item) {
+    if (!item) return "?";
+    if (typeof item.symbol === "string" && item.symbol) return item.symbol;
+    if (typeof item.icon === "string" && item.icon) return item.icon;
+    return "?";
+  }
+
+  function itemArtMarkup(item, variant = "slot") {
+    if (!item) return "";
+    const themeClass = escapeHtml(itemThemeClass(item));
+    const symbol = escapeHtml(itemSymbol(item));
+    const rarity = escapeHtml(String(item.rarity || "normal").toLowerCase());
+    const variantClass = escapeHtml(`variant-${variant}`);
+    return (
+      `<span class="item-art ${themeClass} ${variantClass} rarity-${rarity}" aria-hidden="true">` +
+        `<span class="item-art-glare"></span>` +
+        `<span class="item-art-symbol">${symbol}</span>` +
+      `</span>`
+    );
+  }
+
+  function humanActionWindowOpen() {
+    const heroIndex = state.players.findIndex((player) => player && player.isHuman);
+    return (
+      heroIndex >= 0 &&
+      !state.gameOver &&
+      !state.handOver &&
+      !state.actionLock &&
+      !state.animatingDeal &&
+      !state.roundTransitioning &&
+      !state.replayInProgress &&
+      !isEconomyModalOpen() &&
+      state.waitingForHuman &&
+      state.activePlayerIndex === heroIndex
+    );
+  }
+
+  function markedLensHandsRemaining() {
+    if (state.handId <= 0) return 0;
+    const mod = state.handId % 3;
+    return mod === 0 ? 0 : 3 - mod;
+  }
+
+  function describeHumanItemUseState(player, itemId) {
+    const base = {
+      clickable: isClickableUseItemId(itemId),
+      canUse: false,
+      status: "패시브 · 자동 적용"
+    };
+    if (!base.clickable) return base;
+    if (!humanActionWindowOpen()) {
+      return { clickable: true, canUse: false, status: "내 턴에만 사용 가능" };
+    }
+
+    if (itemId === "sleight_of_hand") {
+      if (state.stage !== "preflop") return { clickable: true, canUse: false, status: "프리플랍에서만 사용 가능" };
+      if (player.folded || player.allIn) return { clickable: true, canUse: false, status: "현재 상태에서 사용 불가" };
+      const playerIndex = state.players.indexOf(player);
+      const dealt = playerIndex >= 0 ? state.dealtHoleCounts[playerIndex] || 0 : 0;
+      if (dealt < 2 || player.hand.length < 2) return { clickable: true, canUse: false, status: "홀카드 2장 배분 후 사용 가능" };
+      return { clickable: true, canUse: true, status: "사용 가능 · 클릭 시 소모" };
+    }
+
+    if (itemId === "marked_lenses") {
+      if (state.handOver || state.stage === "idle") return { clickable: true, canUse: false, status: "핸드 진행 중에만 사용 가능" };
+      if (state.markedLensUsedThisHand) return { clickable: true, canUse: false, status: "이번 핸드에서 이미 사용" };
+      const remain = markedLensHandsRemaining();
+      if (remain > 0) return { clickable: true, canUse: false, status: `${remain}핸드 후 사용 가능` };
+      const playerIndex = state.players.indexOf(player);
+      if (playerIndex < 0 || markedLensTargets(playerIndex).length <= 0) {
+        return { clickable: true, canUse: false, status: "공개할 대상 없음" };
+      }
+      return { clickable: true, canUse: true, status: "사용 가능 · 클릭 시 소모" };
+    }
+
+    if (itemId === "river_foresight") {
+      if (state.handOver || state.stage === "idle") return { clickable: true, canUse: false, status: "핸드 진행 중에만 사용 가능" };
+      if (state.roundTransitioning || state.animatingDeal) return { clickable: true, canUse: false, status: "카드 연출 중 대기" };
+      if (player.riverForesightUsedThisHand) return { clickable: true, canUse: false, status: "이번 핸드에서 이미 사용" };
+      if (player.folded || player.allIn) return { clickable: true, canUse: false, status: "현재 상태에서 사용 불가" };
+      if (!nextCommunityStreetFromStage(state.stage)) return { clickable: true, canUse: false, status: "이 스트리트에서는 사용 불가" };
+      return { clickable: true, canUse: true, status: "사용 가능 · 클릭 시 소모" };
+    }
+
+    return base;
+  }
+
+  function tryUseHumanItemById(itemId) {
+    const hero = humanPlayer();
+    if (!hero || !itemId || !hasItem(hero, itemId)) return false;
+    if (!isClickableUseItemId(itemId)) {
+      setStatus("패시브 아이템.", "해당 아이템은 클릭 사용이 아닌 자동 적용입니다.");
+      return false;
+    }
+
+    const stateInfo = describeHumanItemUseState(hero, itemId);
+    if (!stateInfo.canUse) {
+      setStatus("아이템 사용 불가.", stateInfo.status);
+      return false;
+    }
+
+    if (itemId === "sleight_of_hand") return useSleightOfHand(hero);
+    if (itemId === "marked_lenses") return useMarkedLenses(hero);
+    if (itemId === "river_foresight") return useRiverForesight(hero);
+    return false;
+  }
+
+  function trySellHumanItemById(itemId) {
+    const hero = humanPlayer();
+    if (!hero || !itemId || !hasItem(hero, itemId)) return false;
+    return sellOwnedItem(hero, itemId);
+  }
+
+  function itemSlotsMarkup(player) {
+    if (!player) return "";
+    const slotCount = Math.max(0, Number(player.maxItemSlots) || 0);
+    if (slotCount <= 0) return "";
+
+    const items = normalizePlayerItems(player);
+    const isHumanOwner = !!player.isHuman;
+    const slots = [];
+    for (let index = 0; index < slotCount; index += 1) {
+      const item = items[index];
+      if (!item) {
+        slots.push('<span class="item-slot empty" aria-hidden="true"></span>');
+        continue;
+      }
+
+      const rarity = escapeHtml(item.rarity || "normal");
+      const name = escapeHtml(item.name || "Relic");
+      const desc = escapeHtml(item.desc || "");
+      const logic = escapeHtml(item.effect_logic || "");
+      const itemId = escapeHtml(item.id || "");
+      const sellValue = toCurrency(lootSellValue(item.id));
+      const useState = isHumanOwner ? describeHumanItemUseState(player, item.id) : { clickable: false, canUse: false, status: "패시브" };
+      const ownerType = isHumanOwner ? "hero" : "npc";
+      const canUseClass = useState.canUse ? " can-use" : "";
+      const interactiveClass = isHumanOwner ? " interactive" : "";
+      const statusClass = useState.canUse ? "ready" : "cooldown";
+      const modeText = useState.clickable ? (useState.canUse ? "클릭: 사용" : "클릭: 조건 미충족") : "패시브";
+
+      slots.push(
+        `<span class="item-slot filled rarity-${rarity}${interactiveClass}${canUseClass}" data-item-owner="${ownerType}" data-item-id="${itemId}" aria-label="${name}" title="${name}: ${logic}">` +
+          itemArtMarkup(item, "slot") +
+          `<span class="item-tooltip"><strong>${name}</strong><span>${desc}</span><em>${logic}</em><span class="item-tooltip-state ${statusClass}">${escapeHtml(useState.status)}</span>${isHumanOwner ? `<span class="item-tooltip-hint">${escapeHtml(modeText)} · Shift+클릭/우클릭: 판매 +${sellValue}</span>` : ""}</span>` +
+          "</span>"
+      );
+    }
+
+    return slots.join("");
+  }
+
+  function renderItemOverlays() {
+    if (!el.itemOverlayLayer || !Array.isArray(el.itemOverlaySlots) || el.itemOverlaySlots.length === 0) return;
+    const mode3D = el.tableScene.classList.contains("mode-3d");
+    el.itemOverlayLayer.classList.toggle("show", mode3D);
+    if (!mode3D) return;
+
+    el.itemOverlaySlots.forEach((slotEl) => {
+      const seatIndex = Number(slotEl.dataset.overlaySeat);
+      const player = Number.isInteger(seatIndex) ? state.players[seatIndex] : null;
+      if (!player) {
+        slotEl.innerHTML = "";
+        return;
+      }
+      slotEl.innerHTML = `<div class="item-slots compact">${itemSlotsMarkup(player)}</div>`;
+      slotEl.classList.toggle("human", !!player.isHuman);
+      slotEl.classList.toggle("folded", !!player.folded);
+      slotEl.classList.toggle("eliminated", player.chips <= 0 && state.handOver);
+    });
+  }
+
   function renderSeats() {
     const hidePeekHud = state.holePeek && !state.handOver;
     el.seats.forEach((seatEl, i) => {
@@ -2867,6 +5530,7 @@
       const chipsEl = seatEl.querySelector(".chips");
       const betEl = seatEl.querySelector(".bet");
       const actionEl = seatEl.querySelector(".action-tag");
+      const itemSlotsEl = seatEl.querySelector(".item-slots");
 
       if (!player || !inner || !nameEl || !cardsEl || !chipsEl || !betEl || !actionEl || !blindBadgeEl) return;
 
@@ -2885,6 +5549,10 @@
       if (!hidePeekHud && player.actionTone) {
         actionEl.classList.add(player.actionTone);
       }
+      if (itemSlotsEl) {
+        itemSlotsEl.innerHTML = itemSlotsMarkup(player);
+        itemSlotsEl.classList.toggle("compact", !player.isHuman);
+      }
 
       cardsEl.innerHTML = "";
       cardsEl.classList.toggle("peeking", player.isHuman && state.holePeek && !state.handOver && !player.folded);
@@ -2893,8 +5561,14 @@
       const revealCards = player.isHuman ? revealHumanCards : state.handOver || !!player.showdown;
       const dealtCount = state.dealtHoleCounts[i] || 0;
       const visibleHoleCards = player.hand.slice(0, dealtCount);
-      visibleHoleCards.forEach((card) => {
-        cardsEl.appendChild(makeCardNode(card, !revealCards));
+      const lensRevealActive =
+        !player.isHuman &&
+        !!state.markedLensReveal &&
+        state.markedLensReveal.handId === state.handId &&
+        state.markedLensReveal.targetIndex === i;
+      visibleHoleCards.forEach((card, cardIndex) => {
+        const forceReveal = lensRevealActive && state.markedLensReveal && state.markedLensReveal.cardIndex === cardIndex;
+        cardsEl.appendChild(makeCardNode(card, !(revealCards || forceReveal)));
       });
 
       seatEl.classList.toggle("active", !state.handOver && i === state.activePlayerIndex);
@@ -2915,7 +5589,7 @@
     const human = humanIndex >= 0 ? state.players[humanIndex] : null;
     if (!human) return;
 
-    const actionBlocked = state.gameOver || state.animatingDeal || state.roundTransitioning || state.replayInProgress;
+    const actionBlocked = state.gameOver || state.animatingDeal || state.roundTransitioning || state.replayInProgress || isEconomyModalOpen();
     const yourTurn = !state.handOver && state.waitingForHuman && !actionBlocked;
     const dealt = state.dealtHoleCounts[humanIndex] || 0;
     const canPeek = !state.handOver && !human.folded && human.hand.length === 2 && dealt >= 2 && !actionBlocked;
@@ -2932,11 +5606,17 @@
     if (!yourTurn) {
       el.raiseBtn.disabled = true;
       el.raiseRange.disabled = true;
+      if (el.raiseInput) {
+        el.raiseInput.disabled = true;
+      }
       return;
     }
 
     el.raiseBtn.disabled = false;
     el.raiseRange.disabled = false;
+    if (el.raiseInput) {
+      el.raiseInput.disabled = false;
+    }
 
     const toCall = Math.max(0, state.currentBet - human.currentBet);
     el.checkCallBtn.textContent = toCall > 0 ? `Call ${toCurrency(toCall)}` : "Check";
@@ -2950,19 +5630,36 @@
     if (!canRaise) {
       el.raiseBtn.disabled = true;
       el.raiseRange.disabled = true;
+      if (el.raiseInput) {
+        el.raiseInput.disabled = true;
+        el.raiseInput.value = String(maxTotal);
+      }
       el.raiseAmount.textContent = toCurrency(maxTotal);
       return;
     }
 
     el.raiseRange.min = String(minTotal);
     el.raiseRange.max = String(maxTotal);
-
-    const currentValue = Number(el.raiseRange.value);
-    if (currentValue < minTotal || currentValue > maxTotal) {
-      el.raiseRange.value = String(minTotal);
+    el.raiseRange.step = "1";
+    if (el.raiseInput) {
+      el.raiseInput.min = String(minTotal);
+      el.raiseInput.max = String(maxTotal);
+      el.raiseInput.step = "1";
     }
 
-    el.raiseAmount.textContent = toCurrency(Number(el.raiseRange.value));
+    const rangeValue = Number(el.raiseRange.value);
+    const inputValue = el.raiseInput ? Number(el.raiseInput.value) : Number.NaN;
+    let targetValue = Number.isFinite(inputValue) ? inputValue : rangeValue;
+    if (!Number.isFinite(targetValue)) {
+      targetValue = minTotal;
+    }
+    targetValue = clamp(Math.round(targetValue), minTotal, maxTotal);
+    el.raiseRange.value = String(targetValue);
+    if (el.raiseInput) {
+      el.raiseInput.value = String(targetValue);
+    }
+
+    el.raiseAmount.textContent = toCurrency(targetValue);
     if (maxTotal < strictMinTotal) {
       el.raiseBtn.textContent = "All-in";
     } else {
@@ -2982,13 +5679,14 @@
 
     const red = card.suit === "H" || card.suit === "D";
     if (red) node.classList.add("red");
+    if (isJokerCard(card)) node.classList.add("joker");
     node.textContent = cardText(card);
     return node;
   }
 
   function bindEvents() {
     el.nextHandBtn.addEventListener("click", () => {
-      if (state.gameOver) return;
+      if (state.gameOver || isEconomyModalOpen()) return;
       clearAutoNextHand();
       el.nextHandBtn.disabled = true;
       startHand();
@@ -3031,6 +5729,13 @@
       });
     }
 
+    if (el.autoTuneBtn) {
+      el.autoTuneBtn.addEventListener("click", () => {
+        if (el.autoTuneBtn.disabled) return;
+        applyAutoBalanceTune(4);
+      });
+    }
+
     if (el.startGameBtn) {
       el.startGameBtn.addEventListener("click", () => {
         startGameFromHome();
@@ -3055,9 +5760,62 @@
       });
     }
 
+    if (el.upgradeBankrollBtn) {
+      el.upgradeBankrollBtn.addEventListener("click", () => {
+        tryBuyMetaUpgrade("bankroll");
+      });
+    }
+
+    if (el.upgradeRerollBtn) {
+      el.upgradeRerollBtn.addEventListener("click", () => {
+        tryBuyMetaUpgrade("reroll");
+      });
+    }
+
+    if (el.upgradeSlotsBtn) {
+      el.upgradeSlotsBtn.addEventListener("click", () => {
+        tryBuyMetaUpgrade("slots");
+      });
+    }
+
     if (el.restartRunBtn) {
       el.restartRunBtn.addEventListener("click", () => {
         restartRunFromGameOver();
+      });
+    }
+
+    if (el.lootEquipBtn) {
+      el.lootEquipBtn.addEventListener("click", () => {
+        resolveLootDecision("equip");
+      });
+    }
+
+    if (el.lootSellBtn) {
+      el.lootSellBtn.addEventListener("click", () => {
+        resolveLootDecision("sell");
+      });
+    }
+
+    if (el.shopRerollBtn) {
+      el.shopRerollBtn.addEventListener("click", () => {
+        rerollShopOffers();
+      });
+    }
+
+    if (el.shopCloseBtn) {
+      el.shopCloseBtn.addEventListener("click", () => {
+        closeShopModal();
+      });
+    }
+
+    if (el.shopOffers) {
+      el.shopOffers.addEventListener("click", (event) => {
+        const target = event.target;
+        if (!target || typeof target.closest !== "function") return;
+        const button = target.closest("button[data-buy-item]");
+        if (!button || button.disabled) return;
+        const itemId = button.dataset.buyItem || "";
+        buyShopOffer(itemId);
       });
     }
 
@@ -3071,12 +5829,47 @@
     el.foldBtn.addEventListener("click", () => humanAction("fold"));
     el.checkCallBtn.addEventListener("click", () => humanAction("checkcall"));
     el.raiseBtn.addEventListener("click", () => {
-      humanAction("raise", Number(el.raiseRange.value));
+      const fromInput = el.raiseInput ? Number(el.raiseInput.value) : Number.NaN;
+      const fromRange = Number(el.raiseRange.value);
+      const target = Number.isFinite(fromInput) ? fromInput : fromRange;
+      humanAction("raise", Math.round(target));
     });
 
     el.raiseRange.addEventListener("input", () => {
-      el.raiseAmount.textContent = toCurrency(Number(el.raiseRange.value));
+      const value = Math.round(Number(el.raiseRange.value));
+      if (el.raiseInput) {
+        el.raiseInput.value = String(value);
+      }
+      el.raiseAmount.textContent = toCurrency(value);
     });
+
+    if (el.raiseInput) {
+      const syncRaiseInput = (snapToBounds = false) => {
+        const min = Number(el.raiseRange.min) || 0;
+        const max = Number(el.raiseRange.max) || min;
+        let value = Number(el.raiseInput.value);
+        if (!Number.isFinite(value)) value = min;
+        value = Math.round(value);
+        if (snapToBounds) {
+          value = clamp(value, min, max);
+        }
+        el.raiseInput.value = String(value);
+        el.raiseRange.value = String(clamp(value, min, max));
+        el.raiseAmount.textContent = toCurrency(clamp(value, min, max));
+      };
+
+      el.raiseInput.addEventListener("input", () => {
+        syncRaiseInput(false);
+      });
+
+      el.raiseInput.addEventListener("change", () => {
+        syncRaiseInput(true);
+      });
+
+      el.raiseInput.addEventListener("blur", () => {
+        syncRaiseInput(true);
+      });
+    }
 
     const startPeek = (event) => {
       if (event && typeof event.preventDefault === "function") {
@@ -3100,6 +5893,36 @@
     el.peekBtn.addEventListener("touchcancel", endPeek);
     window.addEventListener("mouseup", endPeek);
     window.addEventListener("blur", endPeek);
+
+    if (el.tableScene) {
+      el.tableScene.addEventListener("click", (event) => {
+        const target = event.target;
+        if (!target || typeof target.closest !== "function") return;
+        const slot = target.closest(".item-slot.filled[data-item-owner='hero']");
+        if (!slot) return;
+        const itemId = String(slot.dataset.itemId || "");
+        if (!itemId) return;
+
+        event.preventDefault();
+        if (event.shiftKey) {
+          trySellHumanItemById(itemId);
+          return;
+        }
+        tryUseHumanItemById(itemId);
+      });
+
+      el.tableScene.addEventListener("contextmenu", (event) => {
+        const target = event.target;
+        if (!target || typeof target.closest !== "function") return;
+        const slot = target.closest(".item-slot.filled[data-item-owner='hero']");
+        if (!slot) return;
+        const itemId = String(slot.dataset.itemId || "");
+        if (!itemId) return;
+
+        event.preventDefault();
+        trySellHumanItemById(itemId);
+      });
+    }
 
     window.addEventListener("keydown", (event) => {
       if (event.defaultPrevented) return;

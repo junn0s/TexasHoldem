@@ -12,7 +12,8 @@
       throwCard: () => Promise.resolve(),
       throwChips: () => Promise.resolve(),
       cue: () => {},
-      playAction: () => {}
+      playAction: () => {},
+      playItemEffect: () => {}
     };
   
     if (!THREE) {
@@ -28,6 +29,35 @@
       C: { symbol: "♣", color: "#111111" },
       H: { symbol: "♥", color: "#b32d2d" },
       D: { symbol: "♦", color: "#b32d2d" }
+    };
+
+    const ITEM_VISUAL = {
+      suit_magnet: { color: 0x73c8ff, emissive: 0x1c5da2, shape: "ring" },
+      blind_refund: { color: 0x9ec0ff, emissive: 0x304c8a, shape: "ring" },
+      pair_hunter: { color: 0xffc4e8, emissive: 0x7c2f5f, shape: "shard" },
+      suit_tailor: { color: 0x90e9ff, emissive: 0x1c5e83, shape: "ring" },
+      heavy_dice: { color: 0xb7c1d6, emissive: 0x3a445d, shape: "dice" },
+      turn_hunter: { color: 0xffd48e, emissive: 0x7a4e1b, shape: "spike" },
+      sleight_of_hand: { color: 0xc48bff, emissive: 0x4d2b77, shape: "shard" },
+      marked_lenses: { color: 0x7ce3cf, emissive: 0x196358, shape: "lens" },
+      royal_taste: { color: 0xf4ce7c, emissive: 0x7d4f1c, shape: "crown" },
+      underdog_emblem: { color: 0xf2b1ff, emissive: 0x6e2f83, shape: "crown" },
+      river_surfer: { color: 0x7ff1da, emissive: 0x1a6f57, shape: "lens" },
+      split_guard: { color: 0x9be6ff, emissive: 0x2d5f8c, shape: "ring" },
+      allin_multiplier: { color: 0xff9a83, emissive: 0x822929, shape: "spike" },
+      triple_barrel: { color: 0xffbe79, emissive: 0x87401f, shape: "spike" },
+      river_foresight: { color: 0x8df6d4, emissive: 0x1d6953, shape: "lens" },
+      insurance_contract: { color: 0x9ec2ff, emissive: 0x2f4a89, shape: "ring" },
+      bounty_hunter: { color: 0xffcf7f, emissive: 0x78431a, shape: "spike" }
+    };
+
+    const ITEM_PROC_COLOR = {
+      mult: 0x75bfff,
+      gold: 0xffcd6b,
+      allin: 0xff8773,
+      shield: 0x8bbdff,
+      bounty: 0xffc56c,
+      foresight: 0x7debc8
     };
   
     const USE_GLTF_AVATARS = false;
@@ -65,9 +95,16 @@
           roomWood: 0x3d2b20,
           roomBrass: 0xb89253,
           neon: 0x123e63,
-          neonEmissive: 0x1f5f8e
+          neonEmissive: 0x1f5f8e,
+          exposure: 1.0,
+          neonGlowIntensity: 0.58,
+          lowSpotIntensity: 4.6,
+          highSpotBase: 4.8,
+          highSpotAmp: 0.24,
+          lowBarFillIntensity: 0.14,
+          highBarFillBase: 0.16,
+          highBarFillAmp: 0.05
         },
-        // ... neon과 velvet은 그대로 두셔도 됩니다.
       neon: {
         sceneBg: 0x041222,
         fog: 0x041222,
@@ -84,7 +121,15 @@
         roomWood: 0x223550,
         roomBrass: 0x4cb4dc,
         neon: 0x184d8a,
-        neonEmissive: 0x32b3f0
+        neonEmissive: 0x32b3f0,
+        exposure: 0.78,
+        neonGlowIntensity: 0.34,
+        lowSpotIntensity: 3.1,
+        highSpotBase: 3.3,
+        highSpotAmp: 0.15,
+        lowBarFillIntensity: 0.08,
+        highBarFillBase: 0.1,
+        highBarFillAmp: 0.03
       },
       velvet: {
         sceneBg: 0x120b11,
@@ -102,7 +147,15 @@
         roomWood: 0x512f25,
         roomBrass: 0xc28f59,
         neon: 0x512846,
-        neonEmissive: 0xb74f8a
+        neonEmissive: 0xb74f8a,
+        exposure: 0.82,
+        neonGlowIntensity: 0.3,
+        lowSpotIntensity: 3.3,
+        highSpotBase: 3.5,
+        highSpotAmp: 0.16,
+        lowBarFillIntensity: 0.09,
+        highBarFillBase: 0.11,
+        highBarFillAmp: 0.03
       }
     };
   
@@ -657,7 +710,7 @@
       const resolvedName = Object.prototype.hasOwnProperty.call(SKINS, name) ? name : "classic";
       const skin = SKINS[resolvedName];
       ctx.skinName = resolvedName;
-  
+
       if (ctx.scene) {
         ctx.scene.background = new THREE.Color(skin.sceneBg);
         if (ctx.scene.fog) {
@@ -681,8 +734,9 @@
         ctx.roomMaterials.brass.color.setHex(skin.roomBrass);
         ctx.roomMaterials.neon.color.setHex(skin.neon);
         ctx.roomMaterials.neon.emissive.setHex(skin.neonEmissive);
+        ctx.roomMaterials.neon.emissiveIntensity = skin.neonGlowIntensity ?? 0.58;
       }
-  
+
       if (ctx.lights) {
         ctx.lights.topSpot.color.setHex(skin.spot);
         ctx.lights.rimLeft.color.setHex(skin.rimLeft);
@@ -694,6 +748,10 @@
   
       if (ctx.atmosphere && ctx.atmosphere.points && ctx.atmosphere.points.material) {
         ctx.atmosphere.points.material.color.setHex(skin.spot);
+      }
+
+      if (ctx.renderer) {
+        ctx.renderer.toneMappingExposure = skin.exposure ?? 1.0;
       }
     }
 
@@ -929,6 +987,89 @@
         ring.rotation.x = Math.PI / 2;
         ring.position.y = -0.29;
         root.add(ring);
+
+        const relicRack = new THREE.Group();
+        relicRack.position.set(isHuman ? 0.92 : 0.78, -0.1, 0.26);
+        relicRack.rotation.y = isHuman ? -0.28 : -0.2;
+        root.add(relicRack);
+
+        const relicAuraMaterial = new THREE.MeshStandardMaterial({
+          color: ITEM_PROC_COLOR.mult,
+          emissive: ITEM_PROC_COLOR.mult,
+          emissiveIntensity: 0.72,
+          transparent: true,
+          opacity: 0,
+          roughness: 0.16,
+          metalness: 0.3
+        });
+        const relicAura = new THREE.Mesh(new THREE.TorusGeometry(0.62, 0.034, 8, 40), relicAuraMaterial);
+        relicAura.rotation.x = Math.PI / 2;
+        relicAura.position.y = 0.3;
+        relicAura.visible = false;
+        relicAura.renderOrder = 14;
+        root.add(relicAura);
+
+        const itemBurstWaveMaterial = new THREE.MeshStandardMaterial({
+          color: ITEM_PROC_COLOR.mult,
+          emissive: ITEM_PROC_COLOR.mult,
+          emissiveIntensity: 1.05,
+          transparent: true,
+          opacity: 0,
+          roughness: 0.2,
+          metalness: 0.1,
+          side: THREE.DoubleSide
+        });
+        const itemBurstWave = new THREE.Mesh(new THREE.RingGeometry(0.22, 0.34, 40), itemBurstWaveMaterial);
+        itemBurstWave.rotation.x = -Math.PI / 2;
+        itemBurstWave.position.y = 0.34;
+        itemBurstWave.visible = false;
+        itemBurstWave.renderOrder = 14;
+        root.add(itemBurstWave);
+
+        const itemBurstFlareMaterial = new THREE.SpriteMaterial({
+          map: getItemProcFlareTexture(),
+          color: ITEM_PROC_COLOR.mult,
+          transparent: true,
+          opacity: 0,
+          depthWrite: false,
+          depthTest: false,
+          blending: THREE.AdditiveBlending
+        });
+        const itemBurstFlare = new THREE.Sprite(itemBurstFlareMaterial);
+        itemBurstFlare.position.set(0, 0.8, 0.16);
+        itemBurstFlare.scale.set(0.34, 0.34, 1);
+        itemBurstFlare.visible = false;
+        itemBurstFlare.renderOrder = 16;
+        root.add(itemBurstFlare);
+
+        const itemSparkMaterial = new THREE.MeshStandardMaterial({
+          color: ITEM_PROC_COLOR.mult,
+          emissive: ITEM_PROC_COLOR.mult,
+          emissiveIntensity: 1.1,
+          roughness: 0.28,
+          metalness: 0.14,
+          transparent: true,
+          opacity: 0
+        });
+        const sparkGeometry = new THREE.SphereGeometry(0.042, 7, 7);
+        const itemSparks = [];
+        const itemSparkDirs = [];
+        for (let s = 0; s < 12; s += 1) {
+          const spark = new THREE.Mesh(sparkGeometry, itemSparkMaterial);
+          spark.visible = false;
+          spark.position.set(0, 0.45, 0.08);
+          spark.castShadow = false;
+          spark.receiveShadow = false;
+          root.add(spark);
+          itemSparks.push(spark);
+
+          const dir = new THREE.Vector3(Math.random() * 2 - 1, 0.25 + Math.random() * 0.85, Math.random() * 2 - 1);
+          if (dir.lengthSq() < 0.001) {
+            dir.set(0.1, 0.8, 0.1);
+          }
+          dir.normalize();
+          itemSparkDirs.push(dir);
+        }
   
         const actionSpriteMaterial = new THREE.SpriteMaterial({
           color: 0xffffff,
@@ -973,6 +1114,24 @@
           mixer: null,
           actions: null,
           ring,
+          relicRack,
+          relicTokens: [],
+          relicMaterials: [],
+          itemIds: [],
+          relicAura,
+          relicAuraMaterial,
+          itemBurstWave,
+          itemBurstWaveMaterial,
+          itemBurstFlare,
+          itemBurstFlareMaterial,
+          itemSparkMaterial,
+          itemSparks,
+          itemSparkDirs,
+          itemEffectTimer: 0,
+          itemEffectDuration: 0.9,
+          itemEffectTone: "mult",
+          itemBurstTimer: 0,
+          itemBurstDuration: 0.9,
           actionSprite,
           timerSprite,
           timerCanvas: timerCanvasPack.canvas,
@@ -1010,7 +1169,137 @@
       if (rank === 11) return "J";
       return String(rank || "?");
     }
-  
+
+    function isJokerCard(card) {
+      if (!card) return false;
+      return !!card.isJoker || card.rank === 0 || card.suit === "J";
+    }
+
+    function itemVisualFor(itemId) {
+      return ITEM_VISUAL[itemId] || { color: 0xb7c1d6, emissive: 0x3a445d, shape: "shard" };
+    }
+
+    function sameItemList(a, b) {
+      if (!Array.isArray(a) || !Array.isArray(b)) return false;
+      if (a.length !== b.length) return false;
+      for (let i = 0; i < a.length; i += 1) {
+        if (String(a[i] || "") !== String(b[i] || "")) return false;
+      }
+      return true;
+    }
+
+    function createRelicToken(itemId, slotIndex = 0) {
+      const visual = itemVisualFor(itemId);
+      const group = new THREE.Group();
+      const materials = [];
+
+      const baseMat = new THREE.MeshStandardMaterial({
+        color: 0x101722,
+        roughness: 0.42,
+        metalness: 0.64
+      });
+      materials.push(baseMat);
+      const base = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.14, 0.045, 12), baseMat);
+      base.castShadow = false;
+      base.receiveShadow = false;
+      group.add(base);
+
+      const relicMat = new THREE.MeshStandardMaterial({
+        color: visual.color,
+        emissive: visual.emissive,
+        emissiveIntensity: 0.24,
+        roughness: 0.28,
+        metalness: 0.62
+      });
+      materials.push(relicMat);
+
+      let relicMesh;
+      if (visual.shape === "ring") {
+        relicMesh = new THREE.Mesh(new THREE.TorusGeometry(0.08, 0.025, 8, 20), relicMat);
+        relicMesh.rotation.x = Math.PI / 2;
+      } else if (visual.shape === "dice") {
+        relicMesh = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.15, 0.15), relicMat);
+      } else if (visual.shape === "lens") {
+        relicMesh = new THREE.Mesh(new THREE.TorusGeometry(0.075, 0.028, 8, 18), relicMat);
+        relicMesh.rotation.x = Math.PI / 2;
+        const core = new THREE.Mesh(
+          new THREE.SphereGeometry(0.038, 10, 10),
+          new THREE.MeshStandardMaterial({
+            color: 0xdafdf4,
+            emissive: visual.emissive,
+            emissiveIntensity: 0.32,
+            roughness: 0.18,
+            metalness: 0.35
+          })
+        );
+        materials.push(core.material);
+        core.position.y = 0.002;
+        group.add(core);
+      } else if (visual.shape === "crown") {
+        relicMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.09, 0.17, 5), relicMat);
+      } else if (visual.shape === "spike") {
+        relicMesh = new THREE.Mesh(new THREE.OctahedronGeometry(0.09, 0), relicMat);
+      } else {
+        relicMesh = new THREE.Mesh(new THREE.TetrahedronGeometry(0.095, 0), relicMat);
+      }
+
+      relicMesh.position.y = 0.11;
+      relicMesh.castShadow = false;
+      group.add(relicMesh);
+
+      group.userData.itemId = itemId;
+      group.userData.slotIndex = slotIndex;
+      group.userData.materials = materials;
+      group.userData.relicMesh = relicMesh;
+      return group;
+    }
+
+    function setEntryRelics(entry, itemIds) {
+      if (!entry || !entry.relicRack) return;
+      const safe = (Array.isArray(itemIds) ? itemIds : [])
+        .map((id) => String(id || ""))
+        .filter(Boolean)
+        .slice(0, 5);
+
+      if (sameItemList(entry.itemIds, safe)) return;
+      entry.itemIds = safe.slice();
+
+      entry.relicTokens.forEach((token) => {
+        token.traverse((node) => {
+          if (node.geometry && typeof node.geometry.dispose === "function") {
+            node.geometry.dispose();
+          }
+          if (node.material) {
+            if (Array.isArray(node.material)) {
+              node.material.forEach((material) => {
+                if (material && typeof material.dispose === "function") material.dispose();
+              });
+            } else if (typeof node.material.dispose === "function") {
+              node.material.dispose();
+            }
+          }
+        });
+        entry.relicRack.remove(token);
+      });
+      entry.relicTokens = [];
+      entry.relicMaterials = [];
+
+      if (!safe.length) return;
+
+      const spacing = 0.255;
+      const startX = -((safe.length - 1) * spacing) / 2;
+      safe.forEach((itemId, idx) => {
+        const token = createRelicToken(itemId, idx);
+        token.position.set(startX + idx * spacing, 0, 0);
+        token.rotation.z = (idx % 2 === 0 ? -1 : 1) * 0.08;
+        entry.relicRack.add(token);
+        entry.relicTokens.push(token);
+        if (Array.isArray(token.userData.materials)) {
+          entry.relicMaterials.push(...token.userData.materials);
+        }
+      });
+    }
+
     function roundedRectPath(ctx2d, x, y, w, h, r) {
       const rr = Math.min(r, w / 2, h / 2);
       ctx2d.beginPath();
@@ -1028,6 +1317,29 @@
       texture.anisotropy = 4;
       texture.needsUpdate = true;
       return texture;
+    }
+
+    function getItemProcFlareTexture() {
+      const key = "item-proc-flare";
+      if (ctx.textureCache.has(key)) {
+        return ctx.textureCache.get(key);
+      }
+
+      const canvas = document.createElement("canvas");
+      canvas.width = 128;
+      canvas.height = 128;
+      const c = canvas.getContext("2d");
+      const grad = c.createRadialGradient(64, 64, 8, 64, 64, 62);
+      grad.addColorStop(0, "rgba(255,255,255,0.95)");
+      grad.addColorStop(0.35, "rgba(255,255,255,0.58)");
+      grad.addColorStop(0.7, "rgba(255,255,255,0.16)");
+      grad.addColorStop(1, "rgba(255,255,255,0)");
+      c.fillStyle = grad;
+      c.fillRect(0, 0, canvas.width, canvas.height);
+
+      const tex = createCanvasTexture(canvas);
+      ctx.textureCache.set(key, tex);
+      return tex;
     }
   
     function getBackTexture() {
@@ -1062,15 +1374,60 @@
     }
   
     function getFrontTexture(card) {
-      if (!card || !card.rank || !card.suit) {
+      const joker = isJokerCard(card);
+      if (!card || (!joker && (!card.rank || !card.suit))) {
         return getBackTexture();
       }
-  
-      const key = `front-${card.rank}-${card.suit}`;
+
+      const key = joker ? "front-joker" : `front-${card.rank}-${card.suit}`;
       if (ctx.textureCache.has(key)) {
         return ctx.textureCache.get(key);
       }
-  
+
+      if (joker) {
+        const canvas = document.createElement("canvas");
+        canvas.width = 256;
+        canvas.height = 356;
+        const c = canvas.getContext("2d");
+
+        const grad = c.createLinearGradient(0, 0, 0, canvas.height);
+        grad.addColorStop(0, "#fff7df");
+        grad.addColorStop(1, "#e5d7a4");
+        c.fillStyle = grad;
+        c.fillRect(0, 0, canvas.width, canvas.height);
+
+        roundedRectPath(c, 6, 6, canvas.width - 12, canvas.height - 12, 18);
+        c.lineWidth = 4;
+        c.strokeStyle = "#2b2118";
+        c.stroke();
+
+        c.fillStyle = "#201911";
+        c.font = '700 34px "Cinzel", serif';
+        c.textAlign = "left";
+        c.textBaseline = "top";
+        c.fillText("JOKER", 20, 16);
+
+        c.save();
+        c.translate(canvas.width, canvas.height);
+        c.rotate(Math.PI);
+        c.font = '700 34px "Cinzel", serif';
+        c.textAlign = "left";
+        c.textBaseline = "top";
+        c.fillText("JOKER", 20, 16);
+        c.restore();
+
+        c.textAlign = "center";
+        c.textBaseline = "middle";
+        c.font = '700 124px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", serif';
+        c.globalAlpha = 0.92;
+        c.fillText("🃏", canvas.width / 2, canvas.height / 2);
+        c.globalAlpha = 1;
+
+        const tex = createCanvasTexture(canvas);
+        ctx.textureCache.set(key, tex);
+        return tex;
+      }
+
       const suitMeta = CARD_SUIT_META[card.suit] || CARD_SUIT_META.S;
       const rank = rankLabel(card.rank);
   
@@ -1596,6 +1953,14 @@
         mat.transparent = fade < 0.999;
         mat.opacity = fade;
       });
+
+      if (Array.isArray(entry.relicMaterials)) {
+        entry.relicMaterials.forEach((mat) => {
+          if (!mat) return;
+          mat.transparent = fade < 0.999;
+          mat.opacity = fade;
+        });
+      }
     }
   
     function setPlayerState(index, playerState = {}) {
@@ -1611,6 +1976,7 @@
       const cards = Array.isArray(playerState.cards) ? playerState.cards : [];
       const actionLabel = typeof playerState.actionLabel === "string" ? playerState.actionLabel : "";
       const actionTone = typeof playerState.actionTone === "string" ? playerState.actionTone : "";
+      const itemIds = Array.isArray(playerState.itemIds) ? playerState.itemIds : [];
   
       entry.allIn = allIn;
       entry.active = active;
@@ -1641,6 +2007,7 @@
   
       entry.ring.visible = active;
       setEntryActionBadge(entry, actionLabel, actionTone);
+      setEntryRelics(entry, itemIds);
     }
   
     function setTableState(tableState = {}) {
@@ -1701,6 +2068,11 @@
         entry.timerVisible = false;
         entry.timerTotalMs = TURN_TIMER_DEFAULT_MS;
         entry.timerLeftMs = 0;
+        entry.itemEffectTimer = 0;
+        entry.itemEffectDuration = 0.9;
+        entry.itemEffectTone = "mult";
+        entry.itemBurstTimer = 0;
+        entry.itemBurstDuration = 0.9;
         entry.peeking = false;
         entry.fadeCurrent = 1;
         entry.fadeTarget = 1;
@@ -1715,6 +2087,39 @@
         if (entry.timerSprite && entry.timerSprite.material) {
           entry.timerSprite.visible = false;
           entry.timerSprite.material.opacity = 0;
+        }
+        if (entry.relicAura && entry.relicAuraMaterial) {
+          entry.relicAura.visible = false;
+          entry.relicAura.scale.setScalar(0.9);
+          entry.relicAuraMaterial.opacity = 0;
+        }
+        if (entry.itemBurstWave && entry.itemBurstWaveMaterial) {
+          entry.itemBurstWave.visible = false;
+          entry.itemBurstWave.scale.setScalar(0.56);
+          entry.itemBurstWaveMaterial.opacity = 0;
+        }
+        if (entry.itemBurstFlare && entry.itemBurstFlareMaterial) {
+          entry.itemBurstFlare.visible = false;
+          entry.itemBurstFlare.scale.set(0.34, 0.34, 1);
+          entry.itemBurstFlareMaterial.opacity = 0;
+        }
+        if (entry.itemSparks && entry.itemSparkMaterial) {
+          entry.itemSparkMaterial.opacity = 0;
+          entry.itemSparks.forEach((spark, idx) => {
+            spark.visible = false;
+            spark.scale.setScalar(1);
+            const dir = entry.itemSparkDirs && entry.itemSparkDirs[idx] ? entry.itemSparkDirs[idx] : null;
+            const x = dir ? dir.x * 0.02 : 0;
+            const y = dir ? dir.y * 0.02 : 0;
+            const z = dir ? dir.z * 0.02 : 0;
+            spark.position.set(x, 0.58 + y, 0.12 + z);
+          });
+        }
+        if (Array.isArray(entry.relicMaterials)) {
+          entry.relicMaterials.forEach((mat) => {
+            if (!mat || !("emissiveIntensity" in mat)) return;
+            mat.emissiveIntensity = 0.24;
+          });
         }
   
         entry.holeCards.forEach((cardMesh, cardIndex) => {
@@ -1884,6 +2289,77 @@
       }
       entry.actionTimer = entry.actionDuration;
     }
+
+    function playItemEffect(seatIndex, payload = {}) {
+      const entry = ctx.players[seatIndex];
+      if (!entry) return;
+      const tone = String((payload && payload.type) || "mult");
+      const effectLabel = String((payload && payload.label) || "").trim();
+      entry.itemEffectTone = tone;
+      entry.itemEffectDuration = tone === "allin" ? 1.32 : tone === "gold" ? 1.16 : tone === "foresight" ? 1.06 : 0.98;
+      entry.itemEffectTimer = entry.itemEffectDuration;
+      entry.itemBurstDuration = tone === "allin" ? 1.2 : tone === "gold" ? 1.06 : 0.96;
+      entry.itemBurstTimer = entry.itemBurstDuration;
+
+      const color = ITEM_PROC_COLOR[tone] || ITEM_PROC_COLOR.mult;
+      if (entry.relicAuraMaterial) {
+        entry.relicAuraMaterial.color.setHex(color);
+        entry.relicAuraMaterial.emissive.setHex(color);
+        entry.relicAuraMaterial.opacity = 0.94;
+      }
+      if (entry.relicAura) {
+        entry.relicAura.visible = true;
+        entry.relicAura.scale.setScalar(0.9);
+      }
+      if (entry.itemBurstWave && entry.itemBurstWaveMaterial) {
+        entry.itemBurstWave.visible = true;
+        entry.itemBurstWave.scale.setScalar(0.56);
+        entry.itemBurstWaveMaterial.color.setHex(color);
+        entry.itemBurstWaveMaterial.emissive.setHex(color);
+        entry.itemBurstWaveMaterial.opacity = 0.96;
+      }
+      if (entry.itemBurstFlare && entry.itemBurstFlareMaterial) {
+        entry.itemBurstFlare.visible = true;
+        entry.itemBurstFlare.position.y = 0.82;
+        entry.itemBurstFlare.scale.set(0.44, 0.44, 1);
+        entry.itemBurstFlareMaterial.color.setHex(color);
+        entry.itemBurstFlareMaterial.opacity = 1;
+      }
+      if (entry.itemSparks && entry.itemSparkMaterial) {
+        entry.itemSparkMaterial.color.setHex(color);
+        entry.itemSparkMaterial.emissive.setHex(color);
+        entry.itemSparkMaterial.opacity = 1;
+        entry.itemSparks.forEach((spark, idx) => {
+          spark.visible = true;
+          spark.scale.setScalar(1.04 + Math.random() * 0.38);
+          const dir = entry.itemSparkDirs && entry.itemSparkDirs[idx] ? entry.itemSparkDirs[idx] : null;
+          const x = dir ? dir.x * 0.02 : 0;
+          const y = dir ? dir.y * 0.02 : 0;
+          const z = dir ? dir.z * 0.02 : 0;
+          spark.position.set(x, 0.58 + y, 0.12 + z);
+        });
+      }
+
+      if (effectLabel) {
+        setEntryActionBadge(entry, effectLabel, tone === "allin" ? "danger" : "strong");
+        const badgeDuration = tone === "allin" ? 1.12 : 0.94;
+        entry.actionDuration = Math.max(entry.actionDuration || 0, badgeDuration);
+        entry.actionTimer = Math.max(entry.actionTimer || 0, badgeDuration);
+      }
+
+      if (entry.relicTokens && entry.relicTokens.length > 0) {
+        entry.relicTokens.forEach((token, idx) => {
+          token.rotation.y += 0.9 + idx * 0.25;
+        });
+      }
+      if (tone === "allin") {
+        ctx.cameraShakeTime = 0.28;
+        ctx.cameraShakeStrength = 0.14;
+      } else {
+        ctx.cameraShakeTime = Math.max(ctx.cameraShakeTime, 0.14);
+        ctx.cameraShakeStrength = Math.max(ctx.cameraShakeStrength, tone === "gold" ? 0.09 : 0.07);
+      }
+    }
   
     function cue(payload = {}) {
       const type = payload.type || "handStart";
@@ -2035,12 +2511,20 @@
       }
   
       if (ctx.lights) {
+        const skin = SKINS[ctx.skinName] || SKINS.classic;
+        const lowSpot = skin.lowSpotIntensity ?? 4.6;
+        const highSpotBase = skin.highSpotBase ?? 4.8;
+        const highSpotAmp = skin.highSpotAmp ?? 0.24;
+        const lowBarFill = skin.lowBarFillIntensity ?? 0.14;
+        const highBarFillBase = skin.highBarFillBase ?? 0.16;
+        const highBarFillAmp = skin.highBarFillAmp ?? 0.05;
+
         if (ctx.performanceMode === "low") {
-          ctx.lights.topSpot.intensity = 4.6;
-          ctx.lights.barFill.intensity = 0.14;
+          ctx.lights.topSpot.intensity = lowSpot;
+          ctx.lights.barFill.intensity = lowBarFill;
         } else {
-          ctx.lights.topSpot.intensity = 4.8 + Math.sin(ctx.time * 0.55) * 0.24;
-          ctx.lights.barFill.intensity = 0.16 + Math.sin(ctx.time * 0.8 + 1.1) * 0.05;
+          ctx.lights.topSpot.intensity = highSpotBase + Math.sin(ctx.time * 0.55) * highSpotAmp;
+          ctx.lights.barFill.intensity = highBarFillBase + Math.sin(ctx.time * 0.8 + 1.1) * highBarFillAmp;
         }
       }
   
@@ -2119,7 +2603,120 @@
         }
   
         updateEntryVisibility(entry, dt);
-  
+
+        if (entry.relicTokens && entry.relicTokens.length > 0) {
+          entry.relicTokens.forEach((token, tokenIndex) => {
+            token.rotation.y += dt * (0.5 + tokenIndex * 0.08);
+            token.position.y = Math.sin(ctx.time * 2.7 + index + tokenIndex * 0.9) * 0.015;
+            const relicMesh = token.userData && token.userData.relicMesh;
+            if (relicMesh) {
+              relicMesh.rotation.y += dt * (1.2 + tokenIndex * 0.18);
+              relicMesh.rotation.x = Math.sin(ctx.time * 1.9 + tokenIndex) * 0.2;
+            }
+          });
+        }
+
+        if (entry.itemEffectTimer > 0 && entry.itemEffectDuration > 0 && entry.relicAura && entry.relicAuraMaterial) {
+          entry.itemEffectTimer = Math.max(0, entry.itemEffectTimer - dt);
+          const t = 1 - entry.itemEffectTimer / entry.itemEffectDuration;
+          const pulse = Math.sin(t * Math.PI);
+          entry.relicAura.visible = true;
+          entry.relicAura.scale.setScalar(0.9 + pulse * 1.15);
+          entry.relicAura.position.y = 0.3 + pulse * 0.14;
+          entry.relicAuraMaterial.opacity = (0.94 - t * 0.82) * (entry.active ? 1 : 0.96);
+
+          if (Array.isArray(entry.relicMaterials)) {
+            entry.relicMaterials.forEach((mat) => {
+              if (!mat || !("emissiveIntensity" in mat)) return;
+              mat.emissiveIntensity = 0.3 + pulse * 1.05;
+            });
+          }
+
+          if (entry.itemEffectTimer <= 0) {
+            entry.relicAura.visible = false;
+            entry.relicAuraMaterial.opacity = 0;
+            if (Array.isArray(entry.relicMaterials)) {
+              entry.relicMaterials.forEach((mat) => {
+                if (!mat || !("emissiveIntensity" in mat)) return;
+                mat.emissiveIntensity = 0.24;
+              });
+            }
+          }
+        } else if (entry.relicAura && entry.relicAuraMaterial) {
+          entry.relicAura.visible = false;
+          entry.relicAuraMaterial.opacity = 0;
+        }
+
+        if (entry.itemBurstTimer > 0 && entry.itemBurstDuration > 0) {
+          entry.itemBurstTimer = Math.max(0, entry.itemBurstTimer - dt);
+          const bt = 1 - entry.itemBurstTimer / entry.itemBurstDuration;
+          const burstPulse = Math.sin(bt * Math.PI);
+
+          if (entry.itemBurstWave && entry.itemBurstWaveMaterial) {
+            entry.itemBurstWave.visible = true;
+            const waveScale = 0.56 + bt * 3.45;
+            entry.itemBurstWave.scale.setScalar(waveScale);
+            entry.itemBurstWave.position.y = 0.34 + bt * 0.07;
+            entry.itemBurstWaveMaterial.opacity = Math.max(0, 0.96 - bt * 0.92);
+          }
+
+          if (entry.itemBurstFlare && entry.itemBurstFlareMaterial) {
+            entry.itemBurstFlare.visible = true;
+            const flareScale = 0.5 + burstPulse * 1.9;
+            entry.itemBurstFlare.scale.set(flareScale, flareScale, 1);
+            entry.itemBurstFlare.position.y = 0.82 + bt * 0.3;
+            entry.itemBurstFlareMaterial.opacity = Math.max(0, 1 - bt * 0.9);
+          }
+
+          if (entry.itemSparks && entry.itemSparkMaterial) {
+            const sparkOpacity = Math.max(0, 1 - bt * 1.04);
+            entry.itemSparkMaterial.opacity = sparkOpacity;
+            entry.itemSparks.forEach((spark, sparkIndex) => {
+              const dir = entry.itemSparkDirs && entry.itemSparkDirs[sparkIndex] ? entry.itemSparkDirs[sparkIndex] : null;
+              if (!dir) return;
+              spark.visible = sparkOpacity > 0.01;
+              const dist = 0.16 + bt * (1.48 + (sparkIndex % 3) * 0.18);
+              spark.position.x = dir.x * dist;
+              spark.position.y = 0.58 + dir.y * dist + bt * 0.3;
+              spark.position.z = 0.12 + dir.z * dist;
+              const s = Math.max(0.45, 1.06 - bt * 0.84);
+              spark.scale.setScalar(s);
+            });
+          }
+
+          if (entry.itemBurstTimer <= 0) {
+            if (entry.itemBurstWave && entry.itemBurstWaveMaterial) {
+              entry.itemBurstWave.visible = false;
+              entry.itemBurstWaveMaterial.opacity = 0;
+            }
+            if (entry.itemBurstFlare && entry.itemBurstFlareMaterial) {
+              entry.itemBurstFlare.visible = false;
+              entry.itemBurstFlareMaterial.opacity = 0;
+            }
+            if (entry.itemSparks && entry.itemSparkMaterial) {
+              entry.itemSparkMaterial.opacity = 0;
+              entry.itemSparks.forEach((spark) => {
+                spark.visible = false;
+              });
+            }
+          }
+        } else {
+          if (entry.itemBurstWave && entry.itemBurstWaveMaterial) {
+            entry.itemBurstWave.visible = false;
+            entry.itemBurstWaveMaterial.opacity = 0;
+          }
+          if (entry.itemBurstFlare && entry.itemBurstFlareMaterial) {
+            entry.itemBurstFlare.visible = false;
+            entry.itemBurstFlareMaterial.opacity = 0;
+          }
+          if (entry.itemSparks && entry.itemSparkMaterial) {
+            entry.itemSparkMaterial.opacity = 0;
+            entry.itemSparks.forEach((spark) => {
+              spark.visible = false;
+            });
+          }
+        }
+
         if (entry.placeholderArms.length === 2) {
           const armL = entry.placeholderArms[0];
           const armR = entry.placeholderArms[1];
@@ -2195,7 +2792,8 @@
       throwCard,
       throwChips,
       cue,
-      playAction
+      playAction,
+      playItemEffect
     };
   })();
   
