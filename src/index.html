@@ -127,7 +127,7 @@
       </div>
     </section>
     <main class="table-scene" id="tableScene">
-      <header class="top-bar">
+      <header class="top-bar" id="topBar">
         <div class="top-left">
           <div class="brand">
             <span class="brand-main">UNDERGROUND</span>
@@ -143,7 +143,8 @@
           <div class="chip-stack" id="blindInfo">Blinds 10 / 20</div>
           <div class="chip-stack" id="blindLevel">Level 1 · Hand 0</div>
           <div class="chip-stack chip-stack-accent" id="blindPositions">SB -- / BB --</div>
-          <label class="skin-select-wrap" for="skinSelect">
+          <button class="hud-toggle" id="hudToggleBtn" type="button" aria-expanded="false" aria-label="Toggle HUD options">⋯</button>
+          <label class="skin-select-wrap hud-extra" for="skinSelect">
             <span>Skin</span>
             <select id="skinSelect" aria-label="Table skin">
               <option value="classic">Classic</option>
@@ -151,10 +152,10 @@
               <option value="velvet">Velvet</option>
             </select>
           </label>
-          <button class="next-hand tertiary" id="performanceToggle" type="button">Performance High</button>
-          <button class="next-hand tertiary" id="soundToggle" type="button">Sound On</button>
-          <button class="next-hand tertiary" id="autoTuneBtn" type="button">Auto Tune</button>
-          <button class="next-hand secondary" id="replayBtn" disabled>Replay</button>
+          <button class="next-hand tertiary hud-extra" id="performanceToggle" type="button">Performance High</button>
+          <button class="next-hand tertiary hud-extra" id="soundToggle" type="button">Sound On</button>
+          <button class="next-hand tertiary hud-extra" id="autoTuneBtn" type="button">Auto Tune</button>
+          <button class="next-hand secondary hud-extra" id="replayBtn" disabled>Replay</button>
           <button class="next-hand" id="nextHandBtn" disabled>Next Hand</button>
         </div>
       </header>
@@ -304,6 +305,7 @@
             <span id="mpSeatInfo">Seat 3</span>
             <span id="mpRoomInfo">Room -</span>
             <span id="mpMemberInfo">Players 1/4</span>
+            <button class="mp-toggle" id="mpToggleBtn" type="button" aria-expanded="false" aria-label="Toggle room controls">Room</button>
           </div>
         </section>
 
