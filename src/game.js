@@ -2045,6 +2045,9 @@
         }
       }
       player.name = normalizePlayerNameInput(nextName);
+      if (multiplayerEnabled()) {
+        player.isHuman = canLocalControlSeat(index);
+      }
     });
   }
 
@@ -6657,13 +6660,13 @@
     return sellOwnedItem(hero, itemId);
   }
 
-  function itemSlotsMarkup(player) {
+  function itemSlotsMarkup(player, options = {}) {
     if (!player) return "";
     const slotCount = Math.max(0, Number(player.maxItemSlots) || 0);
     if (slotCount <= 0) return "";
 
     const items = normalizePlayerItems(player);
-    const isHumanOwner = !!player.isHuman;
+    const isHumanOwner = !!options.localOwner;
     const slots = [];
     for (let index = 0; index < slotCount; index += 1) {
       const item = items[index];
@@ -6710,7 +6713,7 @@
         slotEl.innerHTML = "";
         return;
       }
-      slotEl.innerHTML = `<div class="item-slots compact">${itemSlotsMarkup(player)}</div>`;
+      slotEl.innerHTML = `<div class="item-slots compact">${itemSlotsMarkup(player, { localOwner: canLocalControlSeat(seatIndex) })}</div>`;
       slotEl.classList.toggle("human", canLocalControlSeat(seatIndex));
       slotEl.classList.toggle("folded", !!player.folded);
       slotEl.classList.toggle("eliminated", player.chips <= 0 && state.handOver);
@@ -6749,7 +6752,7 @@
         actionEl.classList.add(player.actionTone);
       }
       if (itemSlotsEl) {
-        itemSlotsEl.innerHTML = itemSlotsMarkup(player);
+        itemSlotsEl.innerHTML = itemSlotsMarkup(player, { localOwner: canLocalControlSeat(i) });
         itemSlotsEl.classList.toggle("compact", !player.isHuman && !canLocalControlSeat(i));
       }
 

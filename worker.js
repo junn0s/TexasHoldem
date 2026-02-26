@@ -2515,6 +2515,7 @@ function maskGameForSeat(gameState, seatIndex) {
     : null;
   cloned.players.forEach((player, index) => {
     if (!player || !Array.isArray(player.hand)) return;
+    player.isHuman = index === seatIndex;
     const canReveal = isHandOver || !!player.showdown || index === seatIndex;
     if (canReveal) return;
     player.hand = player.hand.map((card, cardIndex) => {
