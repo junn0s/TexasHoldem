@@ -557,6 +557,7 @@ class HoldemEngine {
       shopVisible: false,
       shopOffers: [],
       shopRerollsLeft: 0,
+      shopBySeat: {},
       markedLensUsedThisHand: false,
       markedLensReveal: null,
       riverForesightReveal: null,
@@ -626,7 +627,12 @@ class HoldemEngine {
   }
 
   isEconomyOpen() {
-    return !!(this.state.currentLoot || this.state.shopVisible);
+    const hasSeatShop = !!(
+      this.state.shopBySeat &&
+      typeof this.state.shopBySeat === "object" &&
+      Object.values(this.state.shopBySeat).some((entry) => entry && entry.visible)
+    );
+    return !!(this.state.currentLoot || this.state.shopVisible || hasSeatShop);
   }
 
   clearEconomyUiState() {
@@ -634,6 +640,7 @@ class HoldemEngine {
     this.state.shopVisible = false;
     this.state.shopOffers = [];
     this.state.shopRerollsLeft = 0;
+    this.state.shopBySeat = {};
   }
 
   clearEconomyState() {
@@ -1298,6 +1305,8 @@ class HoldemEngine {
     const item = ITEM_DB[next.itemId];
     this.state.currentLoot = next;
     this.state.shopVisible = false;
+    this.state.shopOffers = [];
+    this.state.shopRerollsLeft = 0;
     if (item) {
       this.setStatus(`${next.sourceName} busted.`, `Loot: ${item.name}`);
     } else {
@@ -1309,19 +1318,48 @@ class HoldemEngine {
   openShopModal() {
     if (!FEATURE_PHASE5_ECONOMY || this.state.gameOver) return false;
     const ownerSeat = safeInt(this.state.economyOwnerSeatIndex, -1, -1, this.state.players.length - 1);
-    if (ownerSeat < 0) return false;
-    if (!this.room.isSeatControlled(ownerSeat)) return false;
-    if (!this.isSeatAlive(ownerSeat)) return false;
+    const queueSeats = Array.isArray(this.state.economySeatQueue) ? this.state.economySeatQueue.slice() : [];
+    const seats = [];
 
-    const offers = this.rollShopOffers();
-    if (offers.length <= 0) return false;
+    if (ownerSeat >= 0) {
+      seats.push(ownerSeat);
+    }
+
+    queueSeats.forEach((rawSeat) => {
+      const seat = safeInt(rawSeat, -1, -1, this.state.players.length - 1);
+      if (seat < 0) return;
+      if (seats.includes(seat)) return;
+      seats.push(seat);
+    });
+
+    if (seats.length <= 0) return false;
+
+    let openedCount = 0;
+    seats.forEach((seat) => {
+      if (!this.room.isSeatControlled(seat)) return;
+      if (!this.isSeatAlive(seat)) return;
+      const offers = this.rollShopOffers();
+      if (offers.length <= 0) return;
+      this.state.shopBySeat[String(seat)] = {
+        visible: true,
+        offers,
+        rerollsLeft: SHOP_DEFAULT_REROLLS
+      };
+      openedCount += 1;
+      const player = this.playerAtSeat(seat);
+      const playerName = player ? player.name : `Seat ${seat + 1}`;
+      this.logHistory(`${playerName} black market opens with ${offers.length} offers.`, "shop");
+    });
 
     this.state.currentLoot = null;
-    this.state.shopVisible = true;
-    this.state.shopOffers = offers;
-    this.state.shopRerollsLeft = SHOP_DEFAULT_REROLLS;
-    this.logHistory(`Black market opens with ${offers.length} offers.`, "shop");
-    this.setStatus("Black market open.", "Buy relics or continue.");
+    this.state.economySeatQueue = [];
+    this.state.economyOwnerSeatIndex = -1;
+    this.state.shopVisible = false;
+    this.state.shopOffers = [];
+    this.state.shopRerollsLeft = 0;
+
+    if (openedCount <= 0) return false;
+    this.setStatus("Black market open.", "Each player now has a personal shop.");
     return true;
   }
 
@@ -1400,11 +1438,8 @@ class HoldemEngine {
   }
 
   buyShopOffer(itemId, seatIndex) {
-    if (!this.state.shopVisible || !itemId) {
+    if (!itemId) {
       return { ok: false, message: "Shop is not open." };
-    }
-    if (!this.isEconomyOwnerSeat(seatIndex)) {
-      return { ok: false, message: "Not your shop turn." };
     }
     const hero = this.playerAtSeat(seatIndex);
     if (!hero) {
@@ -1417,12 +1452,17 @@ class HoldemEngine {
       return { ok: false, message: "Player is busted." };
     }
 
-    const offerIndex = this.state.shopOffers.findIndex((offer) => offer && offer.id === itemId);
+    const seatShop = this.state.shopBySeat && this.state.shopBySeat[String(seatIndex)];
+    if (!seatShop || !seatShop.visible || !Array.isArray(seatShop.offers)) {
+      return { ok: false, message: "Shop is not open." };
+    }
+
+    const offerIndex = seatShop.offers.findIndex((offer) => offer && offer.id === itemId);
     if (offerIndex < 0) {
       return { ok: false, message: "Offer not found." };
     }
 
-    const offer = this.state.shopOffers[offerIndex];
+    const offer = seatShop.offers[offerIndex];
     const item = ITEM_DB[itemId];
     if (!item) {
       return { ok: false, message: "Invalid item." };
@@ -1437,7 +1477,7 @@ class HoldemEngine {
     }
 
     hero.chips -= offer.price;
-    this.state.shopOffers.splice(offerIndex, 1);
+    seatShop.offers.splice(offerIndex, 1);
     const replaced = equipResult.replacedId && ITEM_DB[equipResult.replacedId] ? ITEM_DB[equipResult.replacedId].name : "";
     this.setStatus(`${hero.name} purchased ${item.name}.`, replaced ? `${replaced} replaced.` : `-${toCurrency(offer.price)} chips.`);
     this.logHistory(
@@ -1450,12 +1490,6 @@ class HoldemEngine {
   }
 
   rerollShopOffers(seatIndex) {
-    if (!this.state.shopVisible) {
-      return { ok: false, message: "Shop is not open." };
-    }
-    if (!this.isEconomyOwnerSeat(seatIndex)) {
-      return { ok: false, message: "Not your shop turn." };
-    }
     const hero = this.playerAtSeat(seatIndex);
     if (!hero) {
       return { ok: false, message: "Player seat unavailable." };
@@ -1464,8 +1498,13 @@ class HoldemEngine {
       return { ok: false, message: "Seat is bot-controlled." };
     }
 
+    const seatShop = this.state.shopBySeat && this.state.shopBySeat[String(seatIndex)];
+    if (!seatShop || !seatShop.visible) {
+      return { ok: false, message: "Shop is not open." };
+    }
+
     const cost = this.shopRerollCost();
-    if (this.state.shopRerollsLeft <= 0) {
+    if (safeInt(seatShop.rerollsLeft, 0, 0, 20) <= 0) {
       return { ok: false, message: "No rerolls left." };
     }
     if (hero.chips < cost) {
@@ -1473,24 +1512,33 @@ class HoldemEngine {
     }
 
     hero.chips -= cost;
-    this.state.shopRerollsLeft -= 1;
-    this.state.shopOffers = this.rollShopOffers();
+    seatShop.rerollsLeft = Math.max(0, safeInt(seatShop.rerollsLeft, 0, 0, 20) - 1);
+    seatShop.offers = this.rollShopOffers();
     this.setStatus("Shop rerolled.", `${hero.name} spent ${toCurrency(cost)} chips.`);
     this.logHistory(`${hero.name} rerolled shop: -${toCurrency(cost)} chips.`, "shop");
     return { ok: true };
   }
 
   closeShopModal(seatIndex) {
-    if (!this.state.shopVisible) {
+    const closer = this.playerAtSeat(seatIndex);
+    const seatShop = this.state.shopBySeat && this.state.shopBySeat[String(seatIndex)];
+    if (!seatShop || !seatShop.visible) {
       return { ok: false, message: "Shop is not open." };
     }
-    if (!this.isEconomyOwnerSeat(seatIndex)) {
-      return { ok: false, message: "Not your shop turn." };
-    }
-    const closer = this.playerAtSeat(seatIndex);
+
+    seatShop.visible = false;
+    seatShop.offers = [];
+    seatShop.rerollsLeft = 0;
     this.logHistory(closer ? `${closer.name} closed black market.` : "Black market closed.", "shop");
-    const progressed = this.advanceEconomyOwner();
-    return { ok: progressed || !this.isEconomyOpen() };
+
+    const hasOpenSeatShop = Object.values(this.state.shopBySeat || {}).some((entry) => entry && entry.visible);
+    if (hasOpenSeatShop || this.state.currentLoot) {
+      this.setStatus("Black market open.", "Other players are still shopping.");
+      return { ok: true };
+    }
+
+    this.finishPostHandEconomyFlow();
+    return { ok: true };
   }
 
   handStartAverageChips() {
@@ -1637,6 +1685,22 @@ class HoldemEngine {
     this.state.players.forEach((player, index) => {
       const fallback = BASE_PLAYER_NAMES[index] || player.name || `Seat ${index + 1}`;
       player.name = this.room.getSeatDisplayName(index, fallback);
+    });
+
+    if (!this.state.shopBySeat || typeof this.state.shopBySeat !== "object") {
+      this.state.shopBySeat = {};
+      return;
+    }
+
+    Object.keys(this.state.shopBySeat).forEach((key) => {
+      const seat = safeInt(key, -1, -1, this.state.players.length - 1);
+      if (seat < 0) {
+        delete this.state.shopBySeat[key];
+        return;
+      }
+      if (!this.room.isSeatControlled(seat) || !this.isSeatAlive(seat)) {
+        delete this.state.shopBySeat[key];
+      }
     });
   }
 
@@ -2596,10 +2660,15 @@ function maskGameForSeat(gameState, seatIndex) {
 
   if (economyOwnerSeat >= 0 && economyOwnerSeat !== seatIndex) {
     cloned.currentLoot = null;
-    cloned.shopVisible = false;
-    cloned.shopOffers = [];
-    cloned.shopRerollsLeft = 0;
   }
+
+  const seatShopMap = cloned.shopBySeat && typeof cloned.shopBySeat === "object" ? cloned.shopBySeat : {};
+  const seatShop = seatShopMap[String(seatIndex)];
+  const hasSeatShop = !!(seatShop && seatShop.visible);
+  cloned.shopVisible = hasSeatShop;
+  cloned.shopOffers = hasSeatShop && Array.isArray(seatShop.offers) ? seatShop.offers : [];
+  cloned.shopRerollsLeft = hasSeatShop ? safeInt(seatShop.rerollsLeft, 0, 0, 20) : 0;
+  delete cloned.shopBySeat;
 
   return cloned;
 }
