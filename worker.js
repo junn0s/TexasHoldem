@@ -120,6 +120,7 @@ const GAME_STATE_KEYS = [
   "gameOver",
   "lootQueue",
   "currentLoot",
+  "economyOwnerSeatIndex",
   "shopVisible",
   "shopOffers",
   "shopRerollsLeft",
@@ -551,6 +552,8 @@ class HoldemEngine {
       gameOver: false,
       lootQueue: [],
       currentLoot: null,
+      economySeatQueue: [],
+      economyOwnerSeatIndex: -1,
       shopVisible: false,
       shopOffers: [],
       shopRerollsLeft: 0,
@@ -626,12 +629,50 @@ class HoldemEngine {
     return !!(this.state.currentLoot || this.state.shopVisible);
   }
 
-  clearEconomyState() {
-    this.state.lootQueue = [];
+  clearEconomyUiState() {
     this.state.currentLoot = null;
     this.state.shopVisible = false;
     this.state.shopOffers = [];
     this.state.shopRerollsLeft = 0;
+  }
+
+  clearEconomyState() {
+    this.state.lootQueue = [];
+    this.clearEconomyUiState();
+    this.state.economySeatQueue = [];
+    this.state.economyOwnerSeatIndex = -1;
+  }
+
+  isEconomyOwnerSeat(seatIndex) {
+    return Number.isInteger(seatIndex) && seatIndex === safeInt(this.state.economyOwnerSeatIndex, -1, -1, this.state.players.length - 1);
+  }
+
+  pickNextEconomyOwnerSeat() {
+    const queue = Array.isArray(this.state.economySeatQueue) ? this.state.economySeatQueue : [];
+    while (queue.length > 0) {
+      const nextSeat = safeInt(queue.shift(), -1, -1, this.state.players.length - 1);
+      if (nextSeat < 0) continue;
+      if (!this.room.isSeatControlled(nextSeat)) continue;
+      if (!this.isSeatAlive(nextSeat)) continue;
+      return nextSeat;
+    }
+    return -1;
+  }
+
+  advanceEconomyOwner() {
+    this.clearEconomyUiState();
+
+    while (true) {
+      const ownerSeat = this.pickNextEconomyOwnerSeat();
+      if (ownerSeat < 0) {
+        this.finishPostHandEconomyFlow();
+        return false;
+      }
+
+      this.state.economyOwnerSeatIndex = ownerSeat;
+      if (this.openNextLootModalFromQueue()) return true;
+      if (this.openShopModal()) return true;
+    }
   }
 
   rarityRank(rarity) {
@@ -1244,6 +1285,10 @@ class HoldemEngine {
   }
 
   openNextLootModalFromQueue() {
+    if (!this.isEconomyOwnerSeat(this.state.economyOwnerSeatIndex)) {
+      this.state.currentLoot = null;
+      return false;
+    }
     const next = Array.isArray(this.state.lootQueue) ? this.state.lootQueue.shift() : null;
     if (!next) {
       this.state.currentLoot = null;
@@ -1263,7 +1308,10 @@ class HoldemEngine {
 
   openShopModal() {
     if (!FEATURE_PHASE5_ECONOMY || this.state.gameOver) return false;
-    if (this.controlledAliveSeatIndices().length <= 0) return false;
+    const ownerSeat = safeInt(this.state.economyOwnerSeatIndex, -1, -1, this.state.players.length - 1);
+    if (ownerSeat < 0) return false;
+    if (!this.room.isSeatControlled(ownerSeat)) return false;
+    if (!this.isSeatAlive(ownerSeat)) return false;
 
     const offers = this.rollShopOffers();
     if (offers.length <= 0) return false;
@@ -1285,28 +1333,31 @@ class HoldemEngine {
   continuePostHandEconomyFlow() {
     if (this.openNextLootModalFromQueue()) return true;
     if (this.openShopModal()) return true;
-    this.finishPostHandEconomyFlow();
-    return false;
+    return this.advanceEconomyOwner();
   }
 
   beginPostHandEconomyFlow() {
     if (!FEATURE_PHASE5_ECONOMY || this.state.gameOver) return false;
 
     this.clearEconomyState();
+    const controlledSeats = this.controlledAliveSeatIndices();
+    if (controlledSeats.length <= 0) return false;
+
     const lootEvents = this.collectBustLootEvents();
     if (lootEvents.length > 0) {
       this.state.lootQueue = lootEvents.slice();
-      if (this.openNextLootModalFromQueue()) {
-        return true;
-      }
     }
 
-    return this.openShopModal();
+    this.state.economySeatQueue = controlledSeats.slice();
+    return this.advanceEconomyOwner();
   }
 
   resolveLootDecision(mode, seatIndex) {
     if (!this.state.currentLoot) {
       return { ok: false, message: "No loot to resolve." };
+    }
+    if (!this.isEconomyOwnerSeat(seatIndex)) {
+      return { ok: false, message: "Not your loot turn." };
     }
 
     const hero = this.playerAtSeat(seatIndex);
@@ -1351,6 +1402,9 @@ class HoldemEngine {
   buyShopOffer(itemId, seatIndex) {
     if (!this.state.shopVisible || !itemId) {
       return { ok: false, message: "Shop is not open." };
+    }
+    if (!this.isEconomyOwnerSeat(seatIndex)) {
+      return { ok: false, message: "Not your shop turn." };
     }
     const hero = this.playerAtSeat(seatIndex);
     if (!hero) {
@@ -1399,6 +1453,9 @@ class HoldemEngine {
     if (!this.state.shopVisible) {
       return { ok: false, message: "Shop is not open." };
     }
+    if (!this.isEconomyOwnerSeat(seatIndex)) {
+      return { ok: false, message: "Not your shop turn." };
+    }
     const hero = this.playerAtSeat(seatIndex);
     if (!hero) {
       return { ok: false, message: "Player seat unavailable." };
@@ -1427,10 +1484,13 @@ class HoldemEngine {
     if (!this.state.shopVisible) {
       return { ok: false, message: "Shop is not open." };
     }
+    if (!this.isEconomyOwnerSeat(seatIndex)) {
+      return { ok: false, message: "Not your shop turn." };
+    }
     const closer = this.playerAtSeat(seatIndex);
     this.logHistory(closer ? `${closer.name} closed black market.` : "Black market closed.", "shop");
-    this.finishPostHandEconomyFlow();
-    return { ok: true };
+    const progressed = this.advanceEconomyOwner();
+    return { ok: progressed || !this.isEconomyOpen() };
   }
 
   handStartAverageChips() {
@@ -2510,6 +2570,7 @@ function maskGameForSeat(gameState, seatIndex) {
   if (!Array.isArray(cloned.players)) return cloned;
 
   const isHandOver = !!cloned.handOver;
+  const economyOwnerSeat = Number.isInteger(cloned.economyOwnerSeatIndex) ? cloned.economyOwnerSeatIndex : -1;
   const lensReveal = cloned.markedLensReveal && typeof cloned.markedLensReveal === "object"
     ? cloned.markedLensReveal
     : null;
@@ -2532,6 +2593,13 @@ function maskGameForSeat(gameState, seatIndex) {
       return { rank: 2, suit: "S", isMasked: true };
     });
   });
+
+  if (economyOwnerSeat >= 0 && economyOwnerSeat !== seatIndex) {
+    cloned.currentLoot = null;
+    cloned.shopVisible = false;
+    cloned.shopOffers = [];
+    cloned.shopRerollsLeft = 0;
+  }
 
   return cloned;
 }
