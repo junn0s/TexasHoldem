@@ -212,6 +212,7 @@
   const HOST_SEAT_INDEX = 2;
   const REMOTE_CONTROLLABLE_SEATS = [0, 1, 3];
   const MULTIPLAYER_SESSION_STORAGE_KEY = "holdem_multiplayer_session_v1";
+  const MOBILE_STYLE_STORAGE_KEY = "holdem_mobile_style_v1";
   const MULTIPLAYER_SYNC_STATE_KEYS = [
     "players",
     "dealerIndex",
@@ -3630,6 +3631,72 @@
       el.homeSoundBtn.textContent = audio.enabled ? "Sound On" : "Sound Off";
       el.homeSoundBtn.classList.toggle("off", !audio.enabled);
     }
+  }
+
+  function normalizeMobileStyleMode(rawMode) {
+    const mode = String(rawMode || "").trim().toLowerCase();
+    return mode === "gemini" ? "gemini" : "gpt";
+  }
+
+  function updateMobileStyleSwitcherUi(activeMode) {
+    const switcher = document.getElementById("mobileStyleSwitcher");
+    if (!switcher) return;
+    const mode = normalizeMobileStyleMode(activeMode);
+    switcher.querySelectorAll("button[data-mobile-style]").forEach((button) => {
+      const buttonMode = normalizeMobileStyleMode(button.getAttribute("data-mobile-style"));
+      button.classList.toggle("active", buttonMode === mode);
+      button.setAttribute("aria-pressed", String(buttonMode === mode));
+    });
+  }
+
+  function applyMobileStyleMode(mode, { persist = true } = {}) {
+    if (!document.body.classList.contains("platform-mobile")) return;
+    const nextMode = normalizeMobileStyleMode(mode);
+    document.body.setAttribute("data-mobile-style", nextMode);
+    updateMobileStyleSwitcherUi(nextMode);
+    if (!persist) return;
+    try {
+      window.localStorage.setItem(MOBILE_STYLE_STORAGE_KEY, nextMode);
+    } catch (error) {
+      // Ignore storage restrictions.
+    }
+  }
+
+  function readStoredMobileStyleMode() {
+    try {
+      return normalizeMobileStyleMode(window.localStorage.getItem(MOBILE_STYLE_STORAGE_KEY));
+    } catch (error) {
+      return "gpt";
+    }
+  }
+
+  function ensureMobileStyleSwitcher() {
+    if (!document.body.classList.contains("platform-mobile")) return;
+    const actionPanel = document.querySelector(".action-panel");
+    if (!actionPanel) return;
+
+    let switcher = document.getElementById("mobileStyleSwitcher");
+    if (!switcher) {
+      switcher = document.createElement("div");
+      switcher.id = "mobileStyleSwitcher";
+      switcher.className = "mobile-style-switcher";
+      switcher.innerHTML =
+        `<span class="mobile-style-label">Mobile Style</span>` +
+        `<div class="mobile-style-buttons">` +
+          `<button type="button" class="mobile-style-btn" data-mobile-style="gpt" aria-pressed="false">GPT</button>` +
+          `<button type="button" class="mobile-style-btn" data-mobile-style="gemini" aria-pressed="false">Gemini</button>` +
+        `</div>`;
+      actionPanel.prepend(switcher);
+      switcher.addEventListener("click", (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLElement)) return;
+        const button = target.closest("button[data-mobile-style]");
+        if (!button) return;
+        applyMobileStyleMode(button.getAttribute("data-mobile-style"), { persist: true });
+      });
+    }
+
+    applyMobileStyleMode(readStoredMobileStyleMode(), { persist: false });
   }
 
   function renderMetaLobby() {
@@ -7377,6 +7444,7 @@
       });
     }
     loadPreferences();
+    ensureMobileStyleSwitcher();
     loadMultiplayerSessionCache();
     initSeats();
     bindEvents();
