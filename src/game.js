@@ -169,6 +169,25 @@
   };
 
   const el = createDomRefs(document);
+  const userAgent = String(navigator.userAgent || "");
+  const isAndroidMobile = /\bAndroid\b/i.test(userAgent) && /\bMobile\b/i.test(userAgent);
+  const isApplePhone = /\biPhone\b|\biPod\b/i.test(userAgent);
+  const isWindowsPhone = /\bWindows Phone\b|\bIEMobile\b/i.test(userAgent);
+  const isPhoneUa = isAndroidMobile || isApplePhone || isWindowsPhone;
+  const isTabletUa = /\biPad\b|\bTablet\b|\bSM-T\b|\bNexus 7\b|\bNexus 9\b|\bNexus 10\b/i.test(userAgent);
+  const shortestViewportSide = Math.min(window.innerWidth || 0, window.innerHeight || 0);
+  const looksLikePhoneViewport = shortestViewportSide > 0 && shortestViewportSide <= 900;
+  const hasCoarsePointer = window.matchMedia("(pointer: coarse)").matches;
+  const isSmartphoneClient = isPhoneUa || (!isTabletUa && hasCoarsePointer && looksLikePhoneViewport);
+  const isStandaloneDisplay =
+    window.matchMedia("(display-mode: standalone)").matches || !!window.navigator.standalone;
+
+  if (isSmartphoneClient) {
+    document.body.classList.add("platform-mobile");
+    if (isStandaloneDisplay) {
+      document.body.classList.add("platform-mobile-standalone");
+    }
+  }
 
   const audio = {
     context: null,
