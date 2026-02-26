@@ -3651,7 +3651,7 @@
   }
 
   function mobileStyleStylesheetHref(mode) {
-    return normalizeMobileStyleMode(mode) === "gemini" ? "/styles-gemini.css" : "/styles-gpt.css";
+    return normalizeMobileStyleMode(mode) === "gemini" ? "/styles-gemini.css" : "/styles.css";
   }
 
   function applyMobileStyleStylesheet(mode) {
