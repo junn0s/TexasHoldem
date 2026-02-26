@@ -213,6 +213,7 @@
   const REMOTE_CONTROLLABLE_SEATS = [0, 1, 3];
   const MULTIPLAYER_SESSION_STORAGE_KEY = "holdem_multiplayer_session_v1";
   const MOBILE_STYLE_STORAGE_KEY = "holdem_mobile_style_v1";
+  const MOBILE_STYLE_LINK_ID = "mobileStyleThemeCss";
   const MULTIPLAYER_SYNC_STATE_KEYS = [
     "players",
     "dealerIndex",
@@ -3649,10 +3650,31 @@
     });
   }
 
+  function mobileStyleStylesheetHref(mode) {
+    return normalizeMobileStyleMode(mode) === "gemini" ? "/styles-gemini.css" : "/styles-gpt.css";
+  }
+
+  function applyMobileStyleStylesheet(mode) {
+    const href = mobileStyleStylesheetHref(mode);
+    let link = document.getElementById(MOBILE_STYLE_LINK_ID);
+    if (!(link instanceof HTMLLinkElement)) {
+      link = document.createElement("link");
+      link.id = MOBILE_STYLE_LINK_ID;
+      link.rel = "stylesheet";
+      document.head.appendChild(link);
+    }
+
+    if (link.getAttribute("href") !== href) {
+      link.setAttribute("href", href);
+    }
+    link.setAttribute("data-mobile-style-mode", normalizeMobileStyleMode(mode));
+  }
+
   function applyMobileStyleMode(mode, { persist = true } = {}) {
     if (!document.body.classList.contains("platform-mobile")) return;
     const nextMode = normalizeMobileStyleMode(mode);
     document.body.setAttribute("data-mobile-style", nextMode);
+    applyMobileStyleStylesheet(nextMode);
     updateMobileStyleSwitcherUi(nextMode);
     if (!persist) return;
     try {
