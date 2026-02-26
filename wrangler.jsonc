@@ -1,7 +1,31 @@
 {
   "name": "texas-holdem-site",
   "compatibility_date": "2026-02-18",
+  "main": "worker.js",
   "assets": {
+    "binding": "ASSETS",
     "directory": "./src"
-  }
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "POKER_ROOM",
+        "class_name": "PokerRoom"
+      },
+      {
+        "name": "MATCHMAKER",
+        "class_name": "MatchmakerQueue"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["PokerRoom"]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["MatchmakerQueue"]
+    }
+  ]
 }

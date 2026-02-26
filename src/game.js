@@ -138,6 +138,33 @@
       effectPctByItem: {},
       procPctByItem: {},
       lastAppliedStatsHand: 0
+    },
+    multiplayer: {
+      enabled: false,
+      connected: false,
+      role: "solo",
+      roomCode: "",
+      clientId: "",
+      authToken: "",
+      stateSeq: 0,
+      ackSeq: 0,
+      outSeq: 0,
+      displayName: "Player",
+      yourSeatIndex: 2,
+      hostClientId: "",
+      roomMembers: [],
+      seatAssignments: {},
+      pendingRemoteActions: [],
+      ws: null,
+      snapshotRevision: 0,
+      pendingSnapshotTimerId: null,
+      queueing: false,
+      queueTicket: "",
+      queuePollTimerId: null,
+      applyingRemoteSnapshot: false,
+      joining: false,
+      snapshotInitialized: false,
+      serverMode: "authoritative"
     }
   };
 
@@ -161,6 +188,57 @@
     musicFailCount: 0,
     mutedAutoplay: false
   };
+
+  const BASE_PLAYER_NAMES = ["Viper", "Rook", "You", "Jade"];
+  const HOST_SEAT_INDEX = 2;
+  const REMOTE_CONTROLLABLE_SEATS = [0, 1, 3];
+  const MULTIPLAYER_SESSION_STORAGE_KEY = "holdem_multiplayer_session_v1";
+  const MULTIPLAYER_SYNC_STATE_KEYS = [
+    "players",
+    "dealerIndex",
+    "smallBlindIndex",
+    "bigBlindIndex",
+    "smallBlind",
+    "bigBlind",
+    "communityCards",
+    "pot",
+    "stage",
+    "currentBet",
+    "minRaise",
+    "activePlayerIndex",
+    "handOver",
+    "handId",
+    "tournamentStage",
+    "pendingStageAdvance",
+    "blindLevel",
+    "waitingForHuman",
+    "actionLock",
+    "animatingDeal",
+    "roundTransitioning",
+    "autoRunoutInProgress",
+    "replayInProgress",
+    "replayEntryId",
+    "turnTimerRemainingMs",
+    "turnTimerSeatIndex",
+    "dealtHoleCounts",
+    "communityVisible",
+    "currentHandLog",
+    "lastHandLog",
+    "historySeq",
+    "gameOver",
+    "lootQueue",
+    "currentLoot",
+    "shopVisible",
+    "shopOffers",
+    "shopRerollsLeft",
+    "markedLensUsedThisHand",
+    "markedLensReveal",
+    "riverForesightReveal",
+    "handWinnerIndices",
+    "handBloodCoinAwarded",
+    "runBloodCoins",
+    "lastSettledBloodCoins"
+  ];
 
   function defaultMetaState() {
     return {
@@ -335,15 +413,16 @@
 
   function createPlayers() {
     state.players = [
-      makePlayer("Viper", false),
-      makePlayer("Rook", false),
-      makePlayer("You", true),
-      makePlayer("Jade", false)
+      makePlayer(BASE_PLAYER_NAMES[0], false),
+      makePlayer(BASE_PLAYER_NAMES[1], false),
+      makePlayer(BASE_PLAYER_NAMES[2], true),
+      makePlayer(BASE_PLAYER_NAMES[3], false)
     ];
     state.players.forEach((player) => {
       seedStarterLoadout(player);
     });
     assignNpcLoadoutsForStage(state.tournamentStage);
+    applyRoomRosterToPlayers();
   }
 
   function makePlayer(name, isHuman) {
@@ -426,6 +505,7 @@
     state.runBloodCoins = 0;
     state.dealtHoleCounts = state.players.map(() => 0);
     state.communityVisible = 0;
+    state.multiplayer.pendingRemoteActions = [];
     state.markedLensUsedThisHand = false;
     state.markedLensReveal = null;
     state.riverForesightReveal = null;
@@ -1698,6 +1778,1049 @@
     el.statusSub.textContent = sub;
   }
 
+  function deepClone(value) {
+    if (value === null || value === undefined) return value;
+    return JSON.parse(JSON.stringify(value));
+  }
+
+  function normalizePlayerNameInput(raw) {
+    const cleaned = String(raw || "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 16);
+    return cleaned || "Player";
+  }
+
+  function normalizeRoomCodeInput(raw) {
+    const cleaned = String(raw || "")
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, "")
+      .slice(0, 8);
+    if (cleaned.length < 4) return "";
+    return cleaned;
+  }
+
+  function saveMultiplayerSessionCache() {
+    try {
+      const payload = {
+        roomCode: normalizeRoomCodeInput(state.multiplayer.roomCode),
+        displayName: normalizePlayerNameInput(state.multiplayer.displayName),
+        authToken: String(state.multiplayer.authToken || ""),
+        ackSeq: Math.max(0, Math.floor(Number(state.multiplayer.ackSeq) || 0))
+      };
+      window.sessionStorage.setItem(MULTIPLAYER_SESSION_STORAGE_KEY, JSON.stringify(payload));
+    } catch (error) {
+      // Ignore storage failures.
+    }
+  }
+
+  function clearMultiplayerSessionCache() {
+    try {
+      window.sessionStorage.removeItem(MULTIPLAYER_SESSION_STORAGE_KEY);
+    } catch (error) {
+      // Ignore storage failures.
+    }
+  }
+
+  function loadMultiplayerSessionCache() {
+    try {
+      const raw = window.sessionStorage.getItem(MULTIPLAYER_SESSION_STORAGE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== "object") return;
+      const roomCode = normalizeRoomCodeInput(parsed.roomCode);
+      const displayName = normalizePlayerNameInput(parsed.displayName);
+      const token = String(parsed.authToken || "");
+      const ackSeq = Math.max(0, Math.floor(Number(parsed.ackSeq) || 0));
+      if (!roomCode || !token) return;
+      state.multiplayer.roomCode = roomCode;
+      state.multiplayer.displayName = displayName;
+      state.multiplayer.authToken = token;
+      state.multiplayer.ackSeq = ackSeq;
+    } catch (error) {
+      // Ignore parse/storage errors.
+    }
+  }
+
+  function toSafeCount(value, max = 52) {
+    const num = Math.max(0, Math.floor(Number(value) || 0));
+    return Math.min(max, num);
+  }
+
+  function buildMotionStateFromGame(game) {
+    const source = game && typeof game === "object" ? game : {};
+    const players = Array.isArray(source.players) ? source.players : [];
+    const dealt = Array.isArray(source.dealtHoleCounts) ? source.dealtHoleCounts : [];
+    return {
+      handId: toSafeCount(source.handId, 99999),
+      stage: String(source.stage || ""),
+      communityVisible: toSafeCount(source.communityVisible, 5),
+      dealtHoleCounts: dealt.map((value) => toSafeCount(value, 2)),
+      players: players.map((player) => ({
+        currentBet: Math.max(0, Number(player && player.currentBet) || 0),
+        lastAction: String((player && player.lastAction) || "")
+      }))
+    };
+  }
+
+  function actionCueFromLabel(label) {
+    const text = String(label || "").toLowerCase();
+    if (!text) return "";
+    if (text.includes("fold")) return "fold";
+    if (text.includes("all-in") || text.includes("all in") || text.includes("shove")) return "allin";
+    if (text.includes("raise")) return "raise";
+    if (text.includes("bet") || text.startsWith("sb ") || text.startsWith("bb ")) return "bet";
+    if (text.includes("call")) return "call";
+    if (text.includes("check")) return "check";
+    return "";
+  }
+
+  function animateClientSnapshotDelta(prevMotion, nextMotion) {
+    if (!multiplayerEnabled()) return;
+    if (!window.Poker3D) return;
+
+    const prevPlayers = Array.isArray(prevMotion && prevMotion.players) ? prevMotion.players : [];
+    const nextPlayers = Array.isArray(nextMotion && nextMotion.players) ? nextMotion.players : [];
+
+    nextPlayers.forEach((nextPlayer, seatIndex) => {
+      const prevPlayer = prevPlayers[seatIndex] || { currentBet: 0, lastAction: "" };
+      const prevBet = Math.max(0, Number(prevPlayer.currentBet) || 0);
+      const nextBet = Math.max(0, Number(nextPlayer.currentBet) || 0);
+      if (nextBet > prevBet) {
+        throw3DBetChips(seatIndex, Math.round(nextBet - prevBet));
+      }
+
+      const prevAction = String(prevPlayer.lastAction || "");
+      const nextAction = String(nextPlayer.lastAction || "");
+      if (nextAction && nextAction !== prevAction) {
+        const cue = actionCueFromLabel(nextAction);
+        if (cue) {
+          play3DAction(seatIndex, cue);
+        }
+      }
+    });
+
+    const prevDeal = Array.isArray(prevMotion && prevMotion.dealtHoleCounts) ? prevMotion.dealtHoleCounts : [];
+    const nextDeal = Array.isArray(nextMotion && nextMotion.dealtHoleCounts) ? nextMotion.dealtHoleCounts : [];
+    for (let seatIndex = 0; seatIndex < nextDeal.length; seatIndex += 1) {
+      const from = toSafeCount(prevDeal[seatIndex], 2);
+      const to = toSafeCount(nextDeal[seatIndex], 2);
+      if (to > from) {
+        for (let cardIndex = from; cardIndex < to; cardIndex += 1) {
+          if (window.Poker3D && typeof window.Poker3D.throwCard === "function") {
+            window.Poker3D.throwCard({ target: "seat", seatIndex: toViewSeatIndex(seatIndex), cardIndex, duration: 340 });
+          }
+        }
+      }
+    }
+
+    const prevCommunity = toSafeCount(prevMotion && prevMotion.communityVisible, 5);
+    const nextCommunity = toSafeCount(nextMotion && nextMotion.communityVisible, 5);
+    if (nextCommunity > prevCommunity) {
+      for (let cardIndex = prevCommunity; cardIndex < nextCommunity; cardIndex += 1) {
+        if (window.Poker3D && typeof window.Poker3D.throwCard === "function") {
+          window.Poker3D.throwCard({ target: "community", cardIndex, duration: 340 });
+        }
+      }
+    }
+  }
+
+  function randomRoomCode() {
+    const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    let code = "";
+    for (let i = 0; i < 6; i += 1) {
+      const pick = Math.floor(Math.random() * chars.length);
+      code += chars[pick];
+    }
+    return code;
+  }
+
+  function multiplayerEnabled() {
+    return !!state.multiplayer.enabled;
+  }
+
+  function isMultiplayerHost() {
+    return multiplayerEnabled() && state.multiplayer.connected && state.multiplayer.role === "host";
+  }
+
+  function isMultiplayerClient() {
+    return multiplayerEnabled() && state.multiplayer.connected && state.multiplayer.role === "client";
+  }
+
+  function hasAuthoritativeControl() {
+    return !multiplayerEnabled();
+  }
+
+  function canIssueRoomControlCommand() {
+    return hasAuthoritativeControl() || (multiplayerEnabled() && isMultiplayerHost());
+  }
+
+  function seatAssignmentClientId(seatIndex) {
+    if (!state.multiplayer.seatAssignments || typeof state.multiplayer.seatAssignments !== "object") return "";
+    return String(state.multiplayer.seatAssignments[String(seatIndex)] || "");
+  }
+
+  function memberByClientId(clientId) {
+    if (!clientId) return null;
+    return (state.multiplayer.roomMembers || []).find((member) => member && member.id === clientId) || null;
+  }
+
+  function localControlledSeatIndex() {
+    if (multiplayerEnabled() && Number.isInteger(state.multiplayer.yourSeatIndex)) {
+      return state.multiplayer.yourSeatIndex;
+    }
+    return state.players.findIndex((player) => player && player.isHuman);
+  }
+
+  function canLocalControlSeat(seatIndex) {
+    return seatIndex >= 0 && seatIndex === localControlledSeatIndex();
+  }
+
+  function normalizeSeatIndex(index, seatCount = state.players.length) {
+    if (!Number.isInteger(index) || seatCount <= 0) return -1;
+    return ((index % seatCount) + seatCount) % seatCount;
+  }
+
+  function localViewAnchorSeat() {
+    const local = localControlledSeatIndex();
+    const normalized = normalizeSeatIndex(local);
+    if (normalized >= 0) return normalized;
+    return HOST_SEAT_INDEX;
+  }
+
+  function toViewSeatIndex(gameSeatIndex) {
+    const seatCount = Math.max(1, state.players.length || 0);
+    const game = normalizeSeatIndex(gameSeatIndex, seatCount);
+    if (game < 0) return gameSeatIndex;
+    const anchor = normalizeSeatIndex(localViewAnchorSeat(), seatCount);
+    const shift = ((HOST_SEAT_INDEX - anchor) % seatCount + seatCount) % seatCount;
+    return normalizeSeatIndex(game + shift, seatCount);
+  }
+
+  function toGameSeatIndex(viewSeatIndex) {
+    const seatCount = Math.max(1, state.players.length || 0);
+    const view = normalizeSeatIndex(viewSeatIndex, seatCount);
+    if (view < 0) return viewSeatIndex;
+    const anchor = normalizeSeatIndex(localViewAnchorSeat(), seatCount);
+    const shift = ((HOST_SEAT_INDEX - anchor) % seatCount + seatCount) % seatCount;
+    return normalizeSeatIndex(view - shift, seatCount);
+  }
+
+  function isSeatRemoteControlled(seatIndex) {
+    if (!multiplayerEnabled()) return false;
+    if (!REMOTE_CONTROLLABLE_SEATS.includes(seatIndex)) return false;
+    const clientId = seatAssignmentClientId(seatIndex);
+    if (!clientId) return false;
+    const member = memberByClientId(clientId);
+    return !!member;
+  }
+
+  function isSeatHumanControlled(seatIndex) {
+    const player = state.players[seatIndex];
+    if (!player) return false;
+    if (multiplayerEnabled()) {
+      return !!seatAssignmentClientId(seatIndex);
+    }
+    if (player.isHuman) return true;
+    return false;
+  }
+
+  function playerDisplayName(player, index) {
+    if (!player) return "";
+    const baseName = String(player.name || "").trim() || `Seat ${index + 1}`;
+    if (canLocalControlSeat(index)) return `${baseName} (YOU)`;
+    return baseName;
+  }
+
+  function applyRoomRosterToPlayers() {
+    if (!Array.isArray(state.players) || state.players.length === 0) return;
+    state.players.forEach((player, index) => {
+      if (!player) return;
+      let nextName = BASE_PLAYER_NAMES[index] || player.name || `Seat ${index + 1}`;
+      if (multiplayerEnabled()) {
+        const assignedClientId = seatAssignmentClientId(index);
+        const assignedMember = memberByClientId(assignedClientId);
+        if (assignedMember && assignedMember.name) {
+          nextName = assignedMember.name;
+        }
+      }
+      player.name = normalizePlayerNameInput(nextName);
+    });
+  }
+
+  function activeMemberCount() {
+    return Array.isArray(state.multiplayer.roomMembers) ? state.multiplayer.roomMembers.length : 0;
+  }
+
+  function multiplayerModeLabel() {
+    if (state.multiplayer.joining) return "Connecting";
+    if (!multiplayerEnabled()) return "Solo";
+    if (isMultiplayerHost()) return "Host";
+    if (isMultiplayerClient()) return "Joined";
+    return "Lobby";
+  }
+
+  function renderMultiplayerPanel() {
+    if (!el.mpStatusBadge) return;
+
+    if (el.mpNameInput && document.activeElement !== el.mpNameInput) {
+      el.mpNameInput.value = state.multiplayer.displayName || "Player";
+    }
+    if (el.mpRoomInput && document.activeElement !== el.mpRoomInput) {
+      el.mpRoomInput.value = state.multiplayer.roomCode || "";
+    }
+
+    const badge = state.multiplayer.queueing ? "Queue" : multiplayerModeLabel();
+    el.mpStatusBadge.textContent = badge;
+    el.mpStatusBadge.classList.toggle("host", badge === "Host");
+    el.mpStatusBadge.classList.toggle("client", badge === "Joined");
+    el.mpStatusBadge.classList.toggle("solo", badge === "Solo");
+    el.mpStatusBadge.classList.toggle("queue", badge === "Queue");
+
+    const seatIndex = localControlledSeatIndex();
+    if (state.multiplayer.queueing) {
+      el.mpSeatInfo.textContent = "Matchmaking";
+      el.mpRoomInfo.textContent = "Auto Queue";
+      el.mpMemberInfo.textContent = "Searching opponent...";
+    } else if (multiplayerEnabled()) {
+      el.mpSeatInfo.textContent = seatIndex >= 0 ? `Seat ${seatIndex + 1}` : "Seat Spectator";
+      el.mpRoomInfo.textContent = state.multiplayer.roomCode ? `Room ${state.multiplayer.roomCode}` : "Room -";
+      el.mpMemberInfo.textContent = `Players ${activeMemberCount()}/4`;
+    } else {
+      el.mpSeatInfo.textContent = "Seat 3";
+      el.mpRoomInfo.textContent = "Room -";
+      el.mpMemberInfo.textContent = "Players 1/4";
+    }
+
+    const busy = state.multiplayer.joining || state.multiplayer.connected || state.multiplayer.queueing;
+    if (el.mpCreateBtn) {
+      el.mpCreateBtn.disabled = busy;
+    }
+    if (el.mpJoinBtn) {
+      el.mpJoinBtn.disabled = busy;
+    }
+    if (el.mpQuickBtn) {
+      el.mpQuickBtn.textContent = state.multiplayer.queueing ? "Cancel Queue" : "Quick Match";
+      el.mpQuickBtn.disabled = state.multiplayer.joining || state.multiplayer.connected;
+    }
+    if (el.mpLeaveBtn) {
+      el.mpLeaveBtn.disabled = !state.multiplayer.queueing && !state.multiplayer.joining && !state.multiplayer.connected;
+    }
+  }
+
+  function clearPendingMultiplayerSnapshot() {
+    if (!state.multiplayer.pendingSnapshotTimerId) return;
+    window.clearTimeout(state.multiplayer.pendingSnapshotTimerId);
+    state.multiplayer.pendingSnapshotTimerId = null;
+  }
+
+  function clearQuickMatchPoll() {
+    if (!state.multiplayer.queuePollTimerId) return;
+    window.clearTimeout(state.multiplayer.queuePollTimerId);
+    state.multiplayer.queuePollTimerId = null;
+  }
+
+  function resetMultiplayerSessionState({ preserveName = true, preserveRoom = true, preserveToken = false } = {}) {
+    clearPendingMultiplayerSnapshot();
+    clearQuickMatchPoll();
+    state.actionLock = false;
+    state.multiplayer.enabled = false;
+    state.multiplayer.connected = false;
+    state.multiplayer.queueing = false;
+    state.multiplayer.queueTicket = "";
+    state.multiplayer.queuePollTimerId = null;
+    state.multiplayer.joining = false;
+    state.multiplayer.role = "solo";
+    state.multiplayer.clientId = "";
+    if (!preserveToken) {
+      state.multiplayer.authToken = "";
+    }
+    state.multiplayer.stateSeq = 0;
+    state.multiplayer.ackSeq = 0;
+    state.multiplayer.outSeq = 0;
+    state.multiplayer.hostClientId = "";
+    state.multiplayer.yourSeatIndex = HOST_SEAT_INDEX;
+    state.multiplayer.roomMembers = [];
+    state.multiplayer.seatAssignments = {};
+    state.multiplayer.pendingRemoteActions = [];
+    state.multiplayer.snapshotRevision = 0;
+    state.multiplayer.applyingRemoteSnapshot = false;
+    state.multiplayer.snapshotInitialized = false;
+    state.multiplayer.ws = null;
+    if (!preserveName) {
+      state.multiplayer.displayName = "Player";
+    }
+    if (!preserveRoom) {
+      state.multiplayer.roomCode = "";
+    }
+    if (preserveToken) {
+      saveMultiplayerSessionCache();
+    } else {
+      clearMultiplayerSessionCache();
+    }
+  }
+
+  function closeMultiplayerSocket() {
+    if (!state.multiplayer.ws) return;
+    try {
+      state.multiplayer.ws.close(1000, "leave");
+    } catch (error) {
+      // Ignore close errors.
+    }
+    state.multiplayer.ws = null;
+  }
+
+  function makeMultiplayerSocketUrl(roomCode, playerName, mode, token = "", lastAck = 0) {
+    const url = new URL(window.location.href);
+    url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+    url.pathname = "/api/multiplayer/ws";
+    url.search = "";
+    url.searchParams.set("room", roomCode);
+    url.searchParams.set("name", playerName);
+    url.searchParams.set("mode", mode);
+    if (token) {
+      url.searchParams.set("token", token);
+    }
+    if (Number.isFinite(lastAck) && lastAck > 0) {
+      url.searchParams.set("last_ack", String(Math.floor(lastAck)));
+    }
+    return url.toString();
+  }
+
+  function sendMultiplayerMessage(payload) {
+    const ws = state.multiplayer.ws;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+    try {
+      ws.send(JSON.stringify(payload));
+      return true;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  function sendMultiplayerAck(seq) {
+    const safeSeq = Math.max(0, Math.floor(Number(seq) || 0));
+    if (!safeSeq) return;
+    if (safeSeq <= state.multiplayer.ackSeq) return;
+    const sent = sendMultiplayerMessage({ type: "ack", seq: safeSeq });
+    if (sent) {
+      state.multiplayer.ackSeq = safeSeq;
+      saveMultiplayerSessionCache();
+    }
+  }
+
+  function buildMultiplayerSnapshot() {
+    const game = {};
+    MULTIPLAYER_SYNC_STATE_KEYS.forEach((key) => {
+      game[key] = deepClone(state[key]);
+    });
+    return {
+      type: "host_state",
+      revision: state.multiplayer.snapshotRevision + 1,
+      game,
+      statusMain: el.statusMain ? el.statusMain.textContent : "",
+      statusSub: el.statusSub ? el.statusSub.textContent : ""
+    };
+  }
+
+  function flushMultiplayerSnapshot() {
+    clearPendingMultiplayerSnapshot();
+    if (multiplayerEnabled()) return;
+    if (!isMultiplayerHost()) return;
+    const payload = buildMultiplayerSnapshot();
+    if (sendMultiplayerMessage(payload)) {
+      state.multiplayer.snapshotRevision = payload.revision;
+    }
+  }
+
+  function queueMultiplayerSnapshot() {
+    if (multiplayerEnabled()) return;
+    if (!isMultiplayerHost()) return;
+    if (state.multiplayer.applyingRemoteSnapshot) return;
+    if (state.multiplayer.pendingSnapshotTimerId) return;
+    state.multiplayer.pendingSnapshotTimerId = window.setTimeout(() => {
+      state.multiplayer.pendingSnapshotTimerId = null;
+      flushMultiplayerSnapshot();
+    }, 80);
+  }
+
+  function applySnapshotFromHost(payload) {
+    if (!payload || typeof payload !== "object") return;
+    const game = payload.game && typeof payload.game === "object" ? payload.game : null;
+    const patch = payload.patch && typeof payload.patch === "object" ? payload.patch : null;
+    if (!game && !patch) return;
+
+    const prevMotion = buildMotionStateFromGame(state);
+    const shouldAnimate = !!state.multiplayer.snapshotInitialized;
+
+    state.multiplayer.applyingRemoteSnapshot = true;
+    // In multiplayer, timer values are authoritative from server snapshots.
+    // Only clear local interval bookkeeping; do not overwrite timer state fields.
+    if (state.turnTimerIntervalId) {
+      window.clearInterval(state.turnTimerIntervalId);
+      state.turnTimerIntervalId = null;
+    }
+    state.turnTimerDeadlineAt = 0;
+    clearPendingBotThink();
+    try {
+      if (game) {
+        MULTIPLAYER_SYNC_STATE_KEYS.forEach((key) => {
+          if (Object.prototype.hasOwnProperty.call(game, key)) {
+            state[key] = deepClone(game[key]);
+          }
+        });
+      } else if (patch) {
+        Object.keys(patch).forEach((key) => {
+          if (!MULTIPLAYER_SYNC_STATE_KEYS.includes(key)) return;
+          state[key] = deepClone(patch[key]);
+        });
+      }
+      applyRoomRosterToPlayers();
+      if (typeof payload.statusMain === "string") {
+        setStatus(payload.statusMain, typeof payload.statusSub === "string" ? payload.statusSub : "");
+      }
+      state.actionLock = false;
+      state.multiplayer.pendingRemoteActions = [];
+    } finally {
+      state.multiplayer.applyingRemoteSnapshot = false;
+    }
+
+    const nextMotion = buildMotionStateFromGame(state);
+    if (shouldAnimate) {
+      animateClientSnapshotDelta(prevMotion, nextMotion);
+    }
+    state.multiplayer.snapshotInitialized = true;
+
+    if (Number.isFinite(Number(payload.seq))) {
+      const seq = Math.max(0, Math.floor(Number(payload.seq)));
+      state.multiplayer.stateSeq = Math.max(state.multiplayer.stateSeq, seq);
+      sendMultiplayerAck(seq);
+    }
+
+    render();
+  }
+
+  function consumePendingRemoteActionForSeat(seatIndex) {
+    const queue = Array.isArray(state.multiplayer.pendingRemoteActions) ? state.multiplayer.pendingRemoteActions : [];
+    const found = queue.findIndex(
+      (entry) =>
+        entry &&
+        entry.seatIndex === seatIndex &&
+        entry.handId === state.handId &&
+        entry.stage === state.stage
+    );
+    if (found < 0) return null;
+    const [entry] = queue.splice(found, 1);
+    return entry || null;
+  }
+
+  function applyRemoteSeatAction(entry) {
+    if (!entry || !isMultiplayerHost()) return false;
+    const seatIndex = Number(entry.seatIndex);
+    if (!Number.isInteger(seatIndex) || seatIndex < 0 || seatIndex >= state.players.length) return false;
+    if (state.handOver || state.activePlayerIndex !== seatIndex || !state.waitingForHuman) return false;
+    if (!isSeatHumanControlled(seatIndex)) return false;
+
+    const player = state.players[seatIndex];
+    if (!player || !canAct(player)) return false;
+
+    state.actionLock = true;
+    const ok = applyAction(player, entry.action, entry.raiseTo);
+    state.actionLock = false;
+    if (!ok) {
+      setStatus("Remote action rejected.", `${player.name} submitted an invalid move.`);
+      render();
+    }
+    return ok;
+  }
+
+  function tryApplyPendingRemoteActionForSeat(seatIndex) {
+    const pending = consumePendingRemoteActionForSeat(seatIndex);
+    if (!pending) return false;
+    return applyRemoteSeatAction(pending);
+  }
+
+  function handleMultiplayerSessionMessage(payload) {
+    if (!payload || typeof payload !== "object") return;
+    state.multiplayer.enabled = true;
+    state.multiplayer.connected = true;
+    state.multiplayer.joining = false;
+    state.multiplayer.clientId = String(payload.clientId || "");
+    state.multiplayer.authToken = String(payload.token || state.multiplayer.authToken || "");
+    state.multiplayer.roomCode = normalizeRoomCodeInput(payload.roomCode || state.multiplayer.roomCode);
+    state.multiplayer.role = payload.role === "host" ? "host" : "client";
+    state.multiplayer.hostClientId = String(payload.hostClientId || "");
+    state.multiplayer.yourSeatIndex = Number.isInteger(payload.yourSeatIndex) ? payload.yourSeatIndex : HOST_SEAT_INDEX;
+    state.multiplayer.roomMembers = Array.isArray(payload.members) ? payload.members : [];
+    state.multiplayer.seatAssignments = payload.seatAssignments && typeof payload.seatAssignments === "object" ? payload.seatAssignments : {};
+    state.multiplayer.pendingRemoteActions = [];
+    state.multiplayer.snapshotInitialized = false;
+    state.multiplayer.stateSeq = 0;
+    state.multiplayer.ackSeq = 0;
+    state.multiplayer.outSeq = 0;
+
+    applyRoomRosterToPlayers();
+    saveMultiplayerSessionCache();
+    if (state.multiplayer.role === "client") {
+      setHomeGuideVisible(false);
+      setHomeVisibility(false);
+      setStatus("Multiplayer joined.", state.multiplayer.yourSeatIndex >= 0 ? `Assigned seat ${state.multiplayer.yourSeatIndex + 1}.` : "Joined as spectator.");
+    } else {
+      setHomeGuideVisible(false);
+      setHomeVisibility(false);
+      setStatus("Room opened.", `Code ${state.multiplayer.roomCode} · Share this code to invite players.`);
+    }
+    render();
+  }
+
+  function handleMultiplayerRoomUpdateMessage(payload) {
+    if (!payload || typeof payload !== "object") return;
+    const previousRole = state.multiplayer.role;
+    if (payload.yourRole === "host" || payload.yourRole === "client") {
+      state.multiplayer.role = payload.yourRole;
+    }
+    state.multiplayer.hostClientId = String(payload.hostClientId || "");
+    if (Number.isInteger(payload.yourSeatIndex)) {
+      state.multiplayer.yourSeatIndex = payload.yourSeatIndex;
+    }
+    state.multiplayer.roomMembers = Array.isArray(payload.members) ? payload.members : [];
+    state.multiplayer.seatAssignments = payload.seatAssignments && typeof payload.seatAssignments === "object" ? payload.seatAssignments : {};
+    applyRoomRosterToPlayers();
+    saveMultiplayerSessionCache();
+
+    if (previousRole !== "host" && state.multiplayer.role === "host") {
+      setStatus("Host reassigned.", "Previous host left. You can now control hand flow.");
+    }
+
+    render();
+  }
+
+  function handleMultiplayerStateMessage(payload) {
+    if (!multiplayerEnabled()) return;
+    const seq = Number(payload && payload.seq);
+    if (Number.isFinite(seq) && Math.floor(seq) <= state.multiplayer.stateSeq) return;
+    applySnapshotFromHost(payload);
+  }
+
+  function handleMultiplayerActionMessage(payload) {
+    if (!isMultiplayerHost()) return;
+    if (!payload || typeof payload !== "object") return;
+
+    const seatIndex = Number(payload.seatIndex);
+    const allowed = payload.action === "fold" || payload.action === "checkcall" || payload.action === "raise";
+    if (!allowed || !Number.isInteger(seatIndex)) return;
+    if (seatIndex < 0 || seatIndex >= state.players.length) return;
+    if (!seatAssignmentClientId(seatIndex)) return;
+    if (Number(payload.handId) !== state.handId) return;
+    if (typeof payload.stage !== "string" || payload.stage !== state.stage) return;
+
+    const raiseTo = Number.isFinite(Number(payload.raiseTo)) ? Math.round(Number(payload.raiseTo)) : null;
+    const actionEntry = {
+      seatIndex,
+      action: payload.action,
+      raiseTo,
+      handId: state.handId,
+      stage: state.stage
+    };
+
+    const immediate =
+      !state.handOver &&
+      state.waitingForHuman &&
+      state.activePlayerIndex === seatIndex &&
+      isSeatHumanControlled(seatIndex);
+
+    if (immediate) {
+      applyRemoteSeatAction(actionEntry);
+      return;
+    }
+
+    state.multiplayer.pendingRemoteActions.push(actionEntry);
+    if (state.multiplayer.pendingRemoteActions.length > 24) {
+      state.multiplayer.pendingRemoteActions.splice(0, state.multiplayer.pendingRemoteActions.length - 24);
+    }
+  }
+
+  function handleMultiplayerSocketMessage(event) {
+    if (!event || typeof event.data !== "string") return;
+    let payload = null;
+    try {
+      payload = JSON.parse(event.data);
+    } catch (error) {
+      return;
+    }
+    if (!payload || typeof payload !== "object") return;
+
+    if (payload.type === "session") {
+      handleMultiplayerSessionMessage(payload);
+      return;
+    }
+    if (payload.type === "room_update") {
+      handleMultiplayerRoomUpdateMessage(payload);
+      return;
+    }
+    if (payload.type === "state" || payload.type === "snapshot" || payload.type === "delta") {
+      handleMultiplayerStateMessage(payload);
+      return;
+    }
+    if (payload.type === "error") {
+      const message = String(payload.message || "Unknown room error.");
+      setStatus("Multiplayer error.", message);
+      return;
+    }
+    if (payload.type === "pong") {
+      return;
+    }
+    if (payload.type === "room_closed") {
+      setStatus("Room closed.", "Host ended the multiplayer session.");
+      leaveMultiplayerSession({ silent: true });
+      render();
+    }
+  }
+
+  function leaveMultiplayerSession({ silent = false } = {}) {
+    if (state.multiplayer.queueing) {
+      void cancelQuickMatch({ silent: true });
+    }
+    closeMultiplayerSocket();
+    resetMultiplayerSessionState({ preserveName: true, preserveRoom: true });
+    applyRoomRosterToPlayers();
+
+    if (!silent) {
+      setStatus("Multiplayer disconnected.", "Returned to single-player mode.");
+    }
+
+    render();
+  }
+
+  function makeQuickMatchUrl(ticket = "") {
+    const url = new URL(window.location.href);
+    url.pathname = "/api/multiplayer/queue";
+    url.search = "";
+    if (ticket) {
+      url.searchParams.set("ticket", ticket);
+    }
+    return url.toString();
+  }
+
+  async function requestQuickMatchApi(method, { ticket = "", body = null } = {}) {
+    const url = makeQuickMatchUrl(ticket);
+    let response = null;
+    try {
+      response = await window.fetch(url, {
+        method,
+        headers: body ? { "Content-Type": "application/json" } : undefined,
+        body: body ? JSON.stringify(body) : undefined
+      });
+    } catch (error) {
+      return { ok: false, message: "Network error." };
+    }
+
+    let payload = {};
+    try {
+      const text = await response.text();
+      payload = text ? JSON.parse(text) : {};
+    } catch (error) {
+      payload = {};
+    }
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        statusCode: response.status,
+        message: String(payload && payload.message ? payload.message : "Request failed.")
+      };
+    }
+    return payload && typeof payload === "object" ? payload : { ok: false, message: "Invalid response." };
+  }
+
+  function clearQuickMatchState() {
+    clearQuickMatchPoll();
+    state.multiplayer.queueing = false;
+    state.multiplayer.queueTicket = "";
+  }
+
+  function scheduleQuickMatchPoll(delayMs = 1200) {
+    clearQuickMatchPoll();
+    if (!state.multiplayer.queueing || !state.multiplayer.queueTicket) return;
+    state.multiplayer.queuePollTimerId = window.setTimeout(() => {
+      state.multiplayer.queuePollTimerId = null;
+      void pollQuickMatch();
+    }, Math.max(400, Math.floor(delayMs)));
+  }
+
+  async function pollQuickMatch() {
+    if (!state.multiplayer.queueing) return;
+    const ticket = String(state.multiplayer.queueTicket || "");
+    if (!ticket) return;
+
+    const payload = await requestQuickMatchApi("GET", { ticket });
+    if (!state.multiplayer.queueing || state.multiplayer.queueTicket !== ticket) return;
+
+    if (!payload || !payload.ok) {
+      clearQuickMatchState();
+      setStatus("Quick Match ended.", "Queue expired or unavailable. Try again.");
+      render();
+      return;
+    }
+
+    if (payload.status === "matched" && payload.roomCode) {
+      clearQuickMatchState();
+      state.multiplayer.roomCode = normalizeRoomCodeInput(payload.roomCode);
+      if (el.mpRoomInput) {
+        el.mpRoomInput.value = state.multiplayer.roomCode;
+      }
+      setStatus("Match found.", `Room ${state.multiplayer.roomCode}`);
+      render();
+      connectMultiplayer(payload.role === "host" ? "create" : "join");
+      return;
+    }
+
+    scheduleQuickMatchPoll(1200);
+  }
+
+  async function cancelQuickMatch({ silent = false } = {}) {
+    const ticket = String(state.multiplayer.queueTicket || "");
+    clearQuickMatchState();
+    render();
+
+    if (ticket) {
+      await requestQuickMatchApi("DELETE", { ticket });
+    }
+
+    if (!silent) {
+      setStatus("Quick Match cancelled.", "You can create/join a room directly.");
+      render();
+    }
+  }
+
+  async function startQuickMatch() {
+    if (state.multiplayer.queueing) {
+      await cancelQuickMatch();
+      return;
+    }
+    if (state.multiplayer.joining || state.multiplayer.connected) return;
+    if (!window.location || !window.location.host) {
+      setStatus("Quick Match unavailable.", "Serve this project from a web host.");
+      render();
+      return;
+    }
+
+    const nextName = normalizePlayerNameInput(el.mpNameInput ? el.mpNameInput.value : state.multiplayer.displayName);
+    state.multiplayer.displayName = nextName;
+    state.multiplayer.queueing = true;
+    state.multiplayer.queueTicket = "";
+    clearQuickMatchPoll();
+    applyRoomRosterToPlayers();
+    setStatus("Quick Match queue.", "Searching for another player...");
+    render();
+
+    const payload = await requestQuickMatchApi("POST", {
+      body: {
+        name: nextName
+      }
+    });
+
+    if (!state.multiplayer.queueing) return;
+
+    if (!payload || !payload.ok) {
+      clearQuickMatchState();
+      setStatus("Quick Match failed.", String(payload && payload.message ? payload.message : "Queue request failed."));
+      render();
+      return;
+    }
+
+    state.multiplayer.queueTicket = String(payload.ticket || "");
+    if (payload.status === "matched" && payload.roomCode) {
+      clearQuickMatchState();
+      state.multiplayer.roomCode = normalizeRoomCodeInput(payload.roomCode);
+      if (el.mpRoomInput) {
+        el.mpRoomInput.value = state.multiplayer.roomCode;
+      }
+      setStatus("Match found.", `Room ${state.multiplayer.roomCode}`);
+      render();
+      connectMultiplayer(payload.role === "host" ? "create" : "join");
+      return;
+    }
+
+    setStatus("Quick Match queue.", "Waiting for opponent...");
+    scheduleQuickMatchPoll(1200);
+    render();
+  }
+
+  function connectMultiplayer(mode) {
+    const joinMode = mode === "create" ? "create" : "join";
+    if (state.multiplayer.joining) return;
+    if (state.multiplayer.queueing) {
+      void cancelQuickMatch({ silent: true });
+    }
+    if (typeof WebSocket === "undefined") {
+      setStatus("Multiplayer unavailable.", "WebSocket is not supported in this browser.");
+      render();
+      return;
+    }
+    if (!window.location || !window.location.host) {
+      setStatus("Multiplayer unavailable.", "Serve this project from a web host to use rooms.");
+      render();
+      return;
+    }
+
+    const nextName = normalizePlayerNameInput(el.mpNameInput ? el.mpNameInput.value : state.multiplayer.displayName);
+    let nextRoom = normalizeRoomCodeInput(el.mpRoomInput ? el.mpRoomInput.value : state.multiplayer.roomCode);
+    const cachedRoom = normalizeRoomCodeInput(state.multiplayer.roomCode);
+    const cachedToken = String(state.multiplayer.authToken || "");
+    const cachedAck = Math.max(0, Math.floor(Number(state.multiplayer.ackSeq) || 0));
+    if (joinMode === "create" && !nextRoom) {
+      nextRoom = randomRoomCode();
+    }
+    if (!nextRoom) {
+      setStatus("Room code required.", "Use 4-8 letters/numbers.");
+      render();
+      return;
+    }
+
+    if (multiplayerEnabled()) {
+      leaveMultiplayerSession({ silent: true });
+    }
+
+    state.multiplayer.enabled = true;
+    state.multiplayer.connected = false;
+    state.multiplayer.joining = true;
+    state.multiplayer.role = joinMode === "create" ? "host" : "client";
+    state.multiplayer.roomCode = nextRoom;
+    state.multiplayer.displayName = nextName;
+    state.multiplayer.yourSeatIndex = joinMode === "create" ? HOST_SEAT_INDEX : -1;
+    state.multiplayer.pendingRemoteActions = [];
+    state.multiplayer.seatAssignments = {};
+    state.multiplayer.roomMembers = [];
+    applyRoomRosterToPlayers();
+
+    const reconnectEligible = joinMode === "join" && !!cachedToken && cachedRoom === nextRoom;
+    if (!reconnectEligible) {
+      state.multiplayer.authToken = "";
+      state.multiplayer.ackSeq = 0;
+    }
+    saveMultiplayerSessionCache();
+
+    const wsUrl = makeMultiplayerSocketUrl(
+      nextRoom,
+      nextName,
+      joinMode,
+      reconnectEligible ? cachedToken : "",
+      reconnectEligible ? cachedAck : 0
+    );
+    let ws = null;
+    try {
+      ws = new WebSocket(wsUrl);
+    } catch (error) {
+      resetMultiplayerSessionState({ preserveName: true, preserveRoom: true, preserveToken: true });
+      setStatus("Connection error.", "Unable to open multiplayer socket.");
+      render();
+      return;
+    }
+    state.multiplayer.ws = ws;
+
+    ws.addEventListener("open", () => {
+      if (state.multiplayer.ws !== ws) return;
+      setStatus("Connecting room...", `Room ${nextRoom}`);
+      render();
+    });
+
+    ws.addEventListener("message", (event) => {
+      if (state.multiplayer.ws !== ws) return;
+      handleMultiplayerSocketMessage(event);
+    });
+
+    ws.addEventListener("error", () => {
+      if (state.multiplayer.ws !== ws) return;
+      setStatus("Connection error.", "Unable to connect multiplayer room.");
+      render();
+    });
+
+    ws.addEventListener("close", () => {
+      if (state.multiplayer.ws !== ws) return;
+      const wasJoined = state.multiplayer.connected || state.multiplayer.joining;
+      resetMultiplayerSessionState({ preserveName: true, preserveRoom: true, preserveToken: true });
+      applyRoomRosterToPlayers();
+      if (wasJoined) {
+        setStatus("Multiplayer disconnected.", "Socket closed. Back to single-player.");
+      }
+      render();
+    });
+
+    if (el.mpNameInput) {
+      el.mpNameInput.value = nextName;
+    }
+    if (el.mpRoomInput) {
+      el.mpRoomInput.value = nextRoom;
+    }
+    render();
+  }
+
+  function attemptMultiplayerAutoReconnect() {
+    if (state.multiplayer.connected || state.multiplayer.joining) return;
+    const roomCode = normalizeRoomCodeInput(state.multiplayer.roomCode);
+    const token = String(state.multiplayer.authToken || "");
+    if (!roomCode || !token) return;
+    connectMultiplayer("join");
+  }
+
+  function sendMultiplayerCommand(command, extra = null) {
+    if (!multiplayerEnabled() || !state.multiplayer.connected) return false;
+    const hostOnlyCommands = new Set(["start_game", "next_hand", "restart_run"]);
+    if (hostOnlyCommands.has(command) && !isMultiplayerHost()) {
+      setStatus("Host only command.", "Only the room host can control room flow.");
+      render();
+      return false;
+    }
+    state.multiplayer.outSeq += 1;
+    const payload = {
+      type: "command",
+      command,
+      client_seq: state.multiplayer.outSeq
+    };
+    if (extra && typeof extra === "object") {
+      if (typeof extra.itemId === "string" && extra.itemId) {
+        payload.itemId = extra.itemId;
+      }
+    }
+    const sent = sendMultiplayerMessage(payload);
+    if (!sent) {
+      setStatus("Command send failed.", "Connection is unavailable.");
+      render();
+      return false;
+    }
+    return true;
+  }
+
+  function sendLocalActionToHost(action, raiseTo = null) {
+    if (!multiplayerEnabled()) return false;
+    if (!state.multiplayer.connected) return false;
+
+    const seatIndex = localControlledSeatIndex();
+    if (!Number.isInteger(seatIndex) || seatIndex < 0 || seatIndex >= state.players.length) return false;
+
+    state.multiplayer.outSeq += 1;
+    const payload = {
+      type: "action",
+      action,
+      seatIndex,
+      client_seq: state.multiplayer.outSeq,
+      raiseTo: Number.isFinite(Number(raiseTo)) ? Math.round(Number(raiseTo)) : null
+    };
+
+    const sent = sendMultiplayerMessage(payload);
+    if (!sent) {
+      setStatus("Action send failed.", "Connection to host is unavailable.");
+      render();
+      return false;
+    }
+
+    state.actionLock = true;
+    setStatus("Action sent.", "Waiting for server confirmation.");
+    render();
+    return true;
+  }
+
   function setupHomeScreenArt() {
     if (!el.homeScreen) return;
 
@@ -1744,7 +2867,24 @@
   function startGameFromHome() {
     unlockAudio();
     setHomeGuideVisible(false);
+    if (multiplayerEnabled()) {
+      setHomeVisibility(false);
+      if (!isMultiplayerHost()) {
+        setStatus("Waiting for host.", "Host starts the multiplayer hand.");
+        render();
+        return;
+      }
+      sendMultiplayerCommand("start_game");
+      setStatus("Start requested.", "Waiting for server confirmation.");
+      render();
+      return;
+    }
     setHomeVisibility(false);
+    if (!hasAuthoritativeControl()) {
+      setStatus("Host controls game flow.", "Wait for the host to start the hand.");
+      render();
+      return;
+    }
     if (state.handId === 0 && state.handOver) {
       state.lastSettledBloodCoins = 0;
       clearAutoNextHand();
@@ -1952,6 +3092,10 @@
   }
 
   function humanPlayer() {
+    const localSeat = localControlledSeatIndex();
+    if (Number.isInteger(localSeat) && localSeat >= 0 && localSeat < state.players.length) {
+      return state.players[localSeat] || null;
+    }
     return state.players.find((player) => player.isHuman) || null;
   }
 
@@ -2467,6 +3611,7 @@
   }
 
   function renderMetaLobby() {
+    const canEditMeta = hasAuthoritativeControl();
     if (el.metaBloodCoins) {
       el.metaBloodCoins.textContent = toCurrency(Math.max(0, Number(state.meta.bloodCoins) || 0));
     }
@@ -2510,7 +3655,7 @@
         el.upgradeBankrollBtn.disabled = true;
       } else {
         el.upgradeBankrollBtn.textContent = `Upgrade ${toCurrency(bankrollCost)}`;
-        el.upgradeBankrollBtn.disabled = state.meta.bloodCoins < bankrollCost;
+        el.upgradeBankrollBtn.disabled = !canEditMeta || state.meta.bloodCoins < bankrollCost;
       }
     }
 
@@ -2521,7 +3666,7 @@
         el.upgradeRerollBtn.disabled = true;
       } else {
         el.upgradeRerollBtn.textContent = `Upgrade ${toCurrency(rerollCost)}`;
-        el.upgradeRerollBtn.disabled = state.meta.bloodCoins < rerollCost;
+        el.upgradeRerollBtn.disabled = !canEditMeta || state.meta.bloodCoins < rerollCost;
       }
     }
 
@@ -2532,7 +3677,7 @@
         el.upgradeSlotsBtn.disabled = true;
       } else {
         el.upgradeSlotsBtn.textContent = `Upgrade ${toCurrency(slotCost)}`;
-        el.upgradeSlotsBtn.disabled = state.meta.bloodCoins < slotCost;
+        el.upgradeSlotsBtn.disabled = !canEditMeta || state.meta.bloodCoins < slotCost;
       }
     }
   }
@@ -2929,9 +4074,9 @@
   }
 
   function setPeek(active) {
-    const human = state.players.find((p) => p.isHuman);
-    const humanIndex = state.players.findIndex((p) => p.isHuman);
-    const dealt = humanIndex >= 0 ? state.dealtHoleCounts[humanIndex] || 0 : 0;
+    const localSeat = localControlledSeatIndex();
+    const human = Number.isInteger(localSeat) ? state.players[localSeat] : null;
+    const dealt = Number.isInteger(localSeat) && localSeat >= 0 ? state.dealtHoleCounts[localSeat] || 0 : 0;
     const canPeek = !!human && !state.handOver && human.hand.length === 2 && dealt >= 2 && !human.folded;
     const nextValue = !!active && canPeek;
 
@@ -2964,20 +4109,24 @@
 
   function cue3D(type, payload = {}) {
     if (!window.Poker3D || typeof window.Poker3D.cue !== "function") return;
-    window.Poker3D.cue({ type, ...payload });
+    const nextPayload = { type, ...payload };
+    if (Number.isInteger(nextPayload.seatIndex)) {
+      nextPayload.seatIndex = toViewSeatIndex(nextPayload.seatIndex);
+    }
+    window.Poker3D.cue(nextPayload);
   }
 
   async function throwCardToSeat(seatIndex, cardIndex) {
     if (has3DEffects()) {
       await window.Poker3D.throwCard({
         target: "seat",
-        seatIndex,
+        seatIndex: toViewSeatIndex(seatIndex),
         cardIndex,
         duration: 330
       });
       return;
     }
-    await animateCardThrow(getSeatCardTarget(seatIndex, cardIndex));
+    await animateCardThrow(getSeatCardTarget(toViewSeatIndex(seatIndex), cardIndex));
   }
 
   async function throwCardToCommunity(cardIndex) {
@@ -2996,7 +4145,7 @@
     if (!window.Poker3D || typeof window.Poker3D.setTableState !== "function") return;
 
     window.Poker3D.setTableState({
-      dealerIndex: state.dealerIndex,
+      dealerIndex: toViewSeatIndex(state.dealerIndex),
       communityVisible: state.communityVisible,
       communityCards: state.communityCards.slice(0, state.communityVisible).map((card) => ({
         rank: card.rank,
@@ -3007,19 +4156,19 @@
     });
   }
 
-  function sync3DPlayerState(index, player, holeCount, revealCards, cards) {
+  function sync3DPlayerState(viewIndex, gameIndex, player, holeCount, revealCards, cards) {
     if (!window.Poker3D || typeof window.Poker3D.setPlayerState !== "function") return;
     const hidePeekHud = state.holePeek && !state.handOver;
     const itemIds = normalizePlayerItems(player)
       .map((item) => item && item.id)
       .filter(Boolean);
 
-    window.Poker3D.setPlayerState(index, {
-      isHuman: player.isHuman,
+    window.Poker3D.setPlayerState(viewIndex, {
+      isHuman: player.isHuman || canLocalControlSeat(gameIndex),
       folded: player.folded,
       allIn: !state.handOver && player.allIn && !player.folded,
-      active: !state.handOver && index === state.activePlayerIndex,
-      peeking: player.isHuman && state.holePeek && !state.handOver && !player.folded,
+      active: !state.handOver && gameIndex === state.activePlayerIndex,
+      peeking: canLocalControlSeat(gameIndex) && state.holePeek && !state.handOver && !player.folded,
       holeCount,
       reveal: revealCards,
       actionLabel: hidePeekHud ? "" : player.lastAction || "",
@@ -3032,7 +4181,10 @@
   function sync3DTurnTimer() {
     if (!window.Poker3D || typeof window.Poker3D.setTurnTimer !== "function") return;
 
-    state.players.forEach((player, index) => {
+    for (let viewIndex = 0; viewIndex < state.players.length; viewIndex += 1) {
+      const index = toGameSeatIndex(viewIndex);
+      const player = state.players[index];
+      if (!player) continue;
       const visible =
         !state.handOver &&
         !state.roundTransitioning &&
@@ -3040,12 +4192,12 @@
         !state.holePeek &&
         index === state.turnTimerSeatIndex &&
         canAct(player);
-      window.Poker3D.setTurnTimer(index, {
+      window.Poker3D.setTurnTimer(viewIndex, {
         visible,
         totalMs: TURN_TIME_MS,
         leftMs: visible ? state.turnTimerRemainingMs : 0
       });
-    });
+    }
   }
 
   function clearPendingBotThink() {
@@ -3063,7 +4215,7 @@
   }
 
   function canAutoStartNextHand() {
-    return state.handOver && !state.replayInProgress && !state.gameOver && !isEconomyModalOpen();
+    return hasAuthoritativeControl() && state.handOver && !state.replayInProgress && !state.gameOver && !isEconomyModalOpen();
   }
 
   function scheduleAutoNextHand() {
@@ -3096,6 +4248,7 @@
   }
 
   function handleTurnTimeout() {
+    if (!hasAuthoritativeControl()) return;
     if (state.handOver) return;
     const index = state.activePlayerIndex;
     const player = state.players[index];
@@ -3124,13 +4277,13 @@
 
   function play3DAction(seatIndex, actionType) {
     if (!window.Poker3D || typeof window.Poker3D.playAction !== "function") return;
-    window.Poker3D.playAction(seatIndex, actionType);
+    window.Poker3D.playAction(toViewSeatIndex(seatIndex), actionType);
   }
 
   function throw3DBetChips(seatIndex, amount) {
     if (!window.Poker3D || typeof window.Poker3D.throwChips !== "function") return;
     if (amount <= 0) return;
-    window.Poker3D.throwChips({ seatIndex, amount, duration: 560 });
+    window.Poker3D.throwChips({ seatIndex: toViewSeatIndex(seatIndex), amount, duration: 560 });
   }
 
   function itemProcClass(effectType) {
@@ -3171,7 +4324,8 @@
     if (!el.tableScene || !el.itemOverlayLayer || !Array.isArray(el.itemOverlaySlots)) return;
     if (!el.tableScene.classList.contains("mode-3d")) return;
 
-    const slotEl = el.itemOverlaySlots.find((slot) => Number(slot.dataset.overlaySeat) === seatIndex);
+    const viewSeatIndex = toViewSeatIndex(seatIndex);
+    const slotEl = el.itemOverlaySlots.find((slot) => Number(slot.dataset.overlaySeat) === viewSeatIndex);
     if (!slotEl) return;
 
     const burst = document.createElement("span");
@@ -3199,7 +4353,7 @@
 
   function play3DItemEffect(seatIndex, effectType, label = "", itemId = "") {
     if (!window.Poker3D || typeof window.Poker3D.playItemEffect !== "function") return;
-    window.Poker3D.playItemEffect(seatIndex, {
+    window.Poker3D.playItemEffect(toViewSeatIndex(seatIndex), {
       type: effectType,
       label: String(label || ""),
       itemId: String(itemId || "")
@@ -3209,7 +4363,8 @@
   function triggerItemProcEffect(seatIndex, effectType, label, itemId = "") {
     if (!Number.isInteger(seatIndex) || seatIndex < 0 || seatIndex >= state.players.length) return;
 
-    const seatEl = el.seats[seatIndex];
+    const viewSeatIndex = toViewSeatIndex(seatIndex);
+    const seatEl = el.seats[viewSeatIndex];
     const inner = seatEl ? seatEl.querySelector(".seat-inner") : null;
     const toneClass = itemProcClass(effectType);
 
@@ -3490,6 +4645,7 @@
   }
 
   async function startHand() {
+    if (!hasAuthoritativeControl()) return;
     clearAutoNextHand();
     if (isEconomyModalOpen()) return;
     if (state.gameOver || isHeroBusted()) {
@@ -3511,6 +4667,7 @@
     state.autoRunoutInProgress = false;
     state.replayInProgress = false;
     state.replayEntryId = null;
+    state.multiplayer.pendingRemoteActions = [];
     state.handBloodCoinAwarded = false;
     state.markedLensUsedThisHand = false;
     state.markedLensReveal = null;
@@ -3671,17 +4828,29 @@
     }
 
     state.activePlayerIndex = index;
-    state.waitingForHuman = player.isHuman;
+    const humanControlled = isSeatHumanControlled(index);
+    state.waitingForHuman = humanControlled;
     startTurnTimer(index);
-    if (player.isHuman) {
+    if (humanControlled) {
       cue3D("turn", { seatIndex: index });
     }
 
-    if (player.isHuman) {
+    if (humanControlled) {
       const toCall = Math.max(0, state.currentBet - player.currentBet);
-      const hint = toCall > 0 ? `To call: ${toCurrency(toCall)}` : "No bet to call.";
-      setStatus("Your turn.", hint);
+      if (canLocalControlSeat(index)) {
+        const hint = toCall > 0 ? `To call: ${toCurrency(toCall)}` : "No bet to call.";
+        setStatus("Your turn.", hint);
+      } else if (isMultiplayerHost()) {
+        const hint = toCall > 0 ? `Waiting for remote call ${toCurrency(toCall)}.` : "Waiting for remote check/bet.";
+        setStatus(`${player.name}'s turn.`, hint);
+      }
       render();
+      if (isMultiplayerHost() && !canLocalControlSeat(index)) {
+        window.setTimeout(() => {
+          if (state.handOver || state.activePlayerIndex !== index || !state.waitingForHuman) return;
+          tryApplyPendingRemoteActionForSeat(index);
+        }, 30);
+      }
       return;
     }
 
@@ -3699,8 +4868,16 @@
 
   function humanAction(action, raiseTo = null) {
     if (state.gameOver || state.handOver || state.actionLock || state.animatingDeal || state.roundTransitioning) return;
-    const player = state.players[state.activePlayerIndex];
-    if (!player || !player.isHuman || !state.waitingForHuman) return;
+    const seatIndex = state.activePlayerIndex;
+    const player = state.players[seatIndex];
+    if (!player || !state.waitingForHuman) return;
+    if (!canLocalControlSeat(seatIndex)) return;
+
+    if (multiplayerEnabled() && state.multiplayer.connected) {
+      sendLocalActionToHost(action, raiseTo);
+      return;
+    }
+    if (!hasAuthoritativeControl()) return;
 
     state.actionLock = true;
     const ok = applyAction(player, action, raiseTo);
@@ -3799,6 +4976,7 @@
   }
 
   function applyAction(player, action, raiseTo = null) {
+    if (!hasAuthoritativeControl()) return false;
     if (state.handOver) return false;
     if (!canAct(player)) return false;
 
@@ -4959,6 +6137,10 @@
     setSoundToggleUi();
     setPerformanceToggleUi();
     renderMetaLobby();
+    renderMultiplayerPanel();
+    if (el.startGameBtn) {
+      el.startGameBtn.disabled = multiplayerEnabled() ? !isMultiplayerHost() : false;
+    }
     if (el.stageInfo) {
       const stageProfile = currentStageProfile();
       const pending = state.pendingStageAdvance ? " · CLEAR" : "";
@@ -4990,11 +6172,15 @@
     renderShopModal();
     renderControls();
     sync3DTableState();
+    sync3DTurnTimer();
     setGameOverVisibility(state.gameOver);
 
-    el.nextHandBtn.disabled = state.gameOver || !state.handOver || state.replayInProgress || isEconomyModalOpen();
+    const canControlFlow = hasAuthoritativeControl() || (multiplayerEnabled() && isMultiplayerHost());
+    el.nextHandBtn.disabled = !canControlFlow || state.gameOver || !state.handOver || state.replayInProgress || isEconomyModalOpen();
     if (el.replayBtn) {
       el.replayBtn.disabled =
+        !canControlFlow ||
+        multiplayerEnabled() ||
         state.gameOver ||
         !state.handOver ||
         state.replayInProgress ||
@@ -5005,12 +6191,15 @@
       const pendingCount = getPendingAutoTuneEntries(4).length;
       el.autoTuneBtn.textContent = pendingCount > 0 ? `Auto Tune ${pendingCount}` : "Auto Tune";
       el.autoTuneBtn.disabled =
+        !canControlFlow ||
+        multiplayerEnabled() ||
         state.gameOver ||
         !state.handOver ||
         state.replayInProgress ||
         isEconomyModalOpen() ||
         pendingCount <= 0;
     }
+    queueMultiplayerSnapshot();
   }
 
   function renderShowdownPanel() {
@@ -5036,13 +6225,14 @@
               .map((card) => {
                 const red = card.suit === "H" || card.suit === "D" ? " red" : "";
                 const joker = isJokerCard(card) ? " joker" : "";
-                return `<span class="showdown-card-tile${red}${joker}">${cardText(card)}</span>`;
+                return `<span class="showdown-card-tile${red}${joker}">${escapeHtml(cardText(card))}</span>`;
               })
               .join("")
           : `<span class="showdown-mucked">MUCKED</span>`;
         const handName = canReveal && player.showdown ? player.showdown.name : player.folded ? "Folded" : "No Show";
-        const playerName = player.isHuman ? `${player.name} (YOU)` : player.name;
-        return `<div class="${rowClass}"><div class="showdown-player"><span>${playerName}</span><span class="showdown-hand-name">${handName}</span></div><div class="showdown-cards">${cardsHtml}</div></div>`;
+        const playerName = escapeHtml(playerDisplayName(player, index));
+        const safeHandName = escapeHtml(handName);
+        return `<div class="${rowClass}"><div class="showdown-player"><span>${playerName}</span><span class="showdown-hand-name">${safeHandName}</span></div><div class="showdown-cards">${cardsHtml}</div></div>`;
       })
       .filter(Boolean)
       .join("");
@@ -5071,6 +6261,7 @@
     const slotCount = itemSlotCount(hero);
     const usedSlots = normalizePlayerItemEntries(hero).length;
     const replaceOnEquip = slotCount > 0 && usedSlots >= slotCount;
+    const canResolveLoot = multiplayerEnabled() ? state.multiplayer.connected : hasAuthoritativeControl();
 
     if (el.lootTitle) {
       el.lootTitle.textContent = item ? `Loot: ${item.name}` : "Loot Found";
@@ -5104,14 +6295,15 @@
         el.lootEquipBtn.disabled = true;
       } else if (replaceOnEquip) {
         el.lootEquipBtn.textContent = "Equip (Replace)";
-        el.lootEquipBtn.disabled = false;
+        el.lootEquipBtn.disabled = !canResolveLoot;
       } else {
         el.lootEquipBtn.textContent = "Equip";
-        el.lootEquipBtn.disabled = false;
+        el.lootEquipBtn.disabled = !canResolveLoot;
       }
     }
     if (el.lootSellBtn) {
       el.lootSellBtn.textContent = `Sell +${toCurrency(Math.max(0, Number(loot.sellValue) || 0))}`;
+      el.lootSellBtn.disabled = !canResolveLoot;
     }
 
     el.lootModal.classList.remove("hidden");
@@ -5142,7 +6334,7 @@
           const rarity = String(item.rarity || "normal").toLowerCase();
           const owned = !!(hero && hasItem(hero, item.id));
           const canAfford = chips >= offer.price;
-          const disabled = owned || !canAfford;
+          const disabled = (multiplayerEnabled() ? !state.multiplayer.connected : !hasAuthoritativeControl()) || owned || !canAfford;
           const buttonLabel = owned ? "보유중" : canAfford ? "구매" : "칩 부족";
 
           return (
@@ -5175,8 +6367,13 @@
 
     if (el.shopRerollBtn) {
       const canReroll = state.shopRerollsLeft > 0 && chips >= cost;
-      el.shopRerollBtn.disabled = !canReroll;
+      const canControl = multiplayerEnabled() ? state.multiplayer.connected : hasAuthoritativeControl();
+      el.shopRerollBtn.disabled = !canControl || !canReroll;
       el.shopRerollBtn.textContent = `리롤 ${toCurrency(cost)} (${state.shopRerollsLeft})`;
+    }
+    if (el.shopCloseBtn) {
+      const canControl = multiplayerEnabled() ? state.multiplayer.connected : hasAuthoritativeControl();
+      el.shopCloseBtn.disabled = !canControl;
     }
 
     el.shopModal.classList.remove("hidden");
@@ -5238,25 +6435,25 @@
   function renderCornerCardsHud() {
     if (!el.cornerCardsHud || !el.cornerHeroCards || !el.cornerBoardCards) return;
 
-    const humanIndex = state.players.findIndex((player) => player.isHuman);
-    const human = humanIndex >= 0 ? state.players[humanIndex] : null;
-    if (!human) {
+    const seatIndex = localControlledSeatIndex();
+    const localPlayer = seatIndex >= 0 ? state.players[seatIndex] : null;
+    if (!localPlayer) {
       el.cornerCardsHud.style.display = "none";
       return;
     }
 
     el.cornerCardsHud.style.display = "";
 
-    const dealt = humanIndex >= 0 ? state.dealtHoleCounts[humanIndex] || 0 : 0;
-    const revealHero = !human.folded && (state.holePeek || state.handOver || !!human.showdown);
+    const dealt = seatIndex >= 0 ? state.dealtHoleCounts[seatIndex] || 0 : 0;
+    const revealLocal = !localPlayer.folded && dealt > 0 && (state.holePeek || state.handOver || !!localPlayer.showdown);
     const heroCards = [];
     for (let i = 0; i < 2; i += 1) {
-      const card = human.hand[i];
+      const card = localPlayer.hand[i];
       if (!card || dealt <= i) {
         heroCards.push(makeCornerCardHtml(null, state.handOver ? "empty" : "back"));
         continue;
       }
-      heroCards.push(makeCornerCardHtml(card, revealHero ? "front" : "back"));
+      heroCards.push(makeCornerCardHtml(card, revealLocal ? "front" : "back"));
     }
     el.cornerHeroCards.innerHTML = heroCards.join("");
 
@@ -5308,9 +6505,9 @@
         if (!state.handOver && index === state.activePlayerIndex) rowClasses.push("active");
         if (player.folded) rowClasses.push("folded");
         if (!state.handOver && player.allIn && !player.folded) rowClasses.push("allin");
-        if (player.isHuman) rowClasses.push("hero");
+        if (canLocalControlSeat(index)) rowClasses.push("hero");
 
-        const playerName = player.isHuman ? `${player.name} (YOU)` : player.name;
+        const playerName = escapeHtml(playerDisplayName(player, index));
         return `<div class="${rowClasses.join(" ")}"><span class="name">${playerName}</span><span class="chips">${toCurrency(player.chips)}</span><span class="bet">${toCurrency(player.currentBet)}</span><span class="state"><span class="state-pill ${info.tone}">${info.label}</span></span></div>`;
       })
       .join("");
@@ -5369,7 +6566,7 @@
   }
 
   function humanActionWindowOpen() {
-    const heroIndex = state.players.findIndex((player) => player && player.isHuman);
+    const heroIndex = localControlledSeatIndex();
     return (
       heroIndex >= 0 &&
       !state.gameOver &&
@@ -5506,14 +6703,15 @@
     if (!mode3D) return;
 
     el.itemOverlaySlots.forEach((slotEl) => {
-      const seatIndex = Number(slotEl.dataset.overlaySeat);
+      const viewSeatIndex = Number(slotEl.dataset.overlaySeat);
+      const seatIndex = Number.isInteger(viewSeatIndex) ? toGameSeatIndex(viewSeatIndex) : -1;
       const player = Number.isInteger(seatIndex) ? state.players[seatIndex] : null;
       if (!player) {
         slotEl.innerHTML = "";
         return;
       }
       slotEl.innerHTML = `<div class="item-slots compact">${itemSlotsMarkup(player)}</div>`;
-      slotEl.classList.toggle("human", !!player.isHuman);
+      slotEl.classList.toggle("human", canLocalControlSeat(seatIndex));
       slotEl.classList.toggle("folded", !!player.folded);
       slotEl.classList.toggle("eliminated", player.chips <= 0 && state.handOver);
     });
@@ -5521,7 +6719,8 @@
 
   function renderSeats() {
     const hidePeekHud = state.holePeek && !state.handOver;
-    el.seats.forEach((seatEl, i) => {
+    el.seats.forEach((seatEl, viewIndex) => {
+      const i = toGameSeatIndex(viewIndex);
       const player = state.players[i];
       const inner = seatEl.querySelector(".seat-inner");
       const nameEl = seatEl.querySelector(".name");
@@ -5534,7 +6733,7 @@
 
       if (!player || !inner || !nameEl || !cardsEl || !chipsEl || !betEl || !actionEl || !blindBadgeEl) return;
 
-      nameEl.textContent = player.isHuman ? `${player.name} (YOU)` : player.name;
+      nameEl.textContent = playerDisplayName(player, i);
       chipsEl.textContent = `Chips ${toCurrency(player.chips)}`;
       betEl.textContent = player.currentBet > 0 ? `Bet ${toCurrency(player.currentBet)}` : "";
 
@@ -5551,14 +6750,19 @@
       }
       if (itemSlotsEl) {
         itemSlotsEl.innerHTML = itemSlotsMarkup(player);
-        itemSlotsEl.classList.toggle("compact", !player.isHuman);
+        itemSlotsEl.classList.toggle("compact", !player.isHuman && !canLocalControlSeat(i));
       }
 
       cardsEl.innerHTML = "";
-      cardsEl.classList.toggle("peeking", player.isHuman && state.holePeek && !state.handOver && !player.folded);
+      cardsEl.classList.toggle(
+        "peeking",
+        canLocalControlSeat(i) && state.holePeek && !state.handOver && !player.folded
+      );
 
-      const revealHumanCards = player.isHuman && (state.holePeek || state.handOver || !!player.showdown);
-      const revealCards = player.isHuman ? revealHumanCards : state.handOver || !!player.showdown;
+      const isOwnSeat = canLocalControlSeat(i);
+      const revealCards = isOwnSeat
+        ? !player.folded && (state.holePeek || state.handOver || !!player.showdown)
+        : state.handOver || !!player.showdown;
       const dealtCount = state.dealtHoleCounts[i] || 0;
       const visibleHoleCards = player.hand.slice(0, dealtCount);
       const lensRevealActive =
@@ -5575,24 +6779,37 @@
       seatEl.classList.toggle("dealer", i === state.dealerIndex);
       seatEl.classList.toggle("blind-sb", i === state.smallBlindIndex);
       seatEl.classList.toggle("blind-bb", i === state.bigBlindIndex);
-      seatEl.classList.toggle("human", player.isHuman);
+      seatEl.classList.toggle("human", canLocalControlSeat(i));
       seatEl.classList.toggle("all-in", !state.handOver && player.allIn && !player.folded);
       seatEl.classList.toggle("folded", player.folded);
       seatEl.classList.toggle("eliminated", player.chips <= 0 && state.handOver);
 
-      sync3DPlayerState(i, player, visibleHoleCards.length, revealCards, visibleHoleCards);
+      sync3DPlayerState(viewIndex, i, player, visibleHoleCards.length, revealCards, visibleHoleCards);
     });
   }
 
   function renderControls() {
-    const humanIndex = state.players.findIndex((player) => player.isHuman);
-    const human = humanIndex >= 0 ? state.players[humanIndex] : null;
-    if (!human) return;
+    const localSeat = localControlledSeatIndex();
+    const localPlayer = localSeat >= 0 ? state.players[localSeat] : null;
+    if (!localPlayer) {
+      el.foldBtn.disabled = true;
+      el.checkCallBtn.disabled = true;
+      el.raiseBtn.disabled = true;
+      el.raiseRange.disabled = true;
+      if (el.raiseInput) el.raiseInput.disabled = true;
+      el.peekBtn.disabled = true;
+      return;
+    }
 
     const actionBlocked = state.gameOver || state.animatingDeal || state.roundTransitioning || state.replayInProgress || isEconomyModalOpen();
-    const yourTurn = !state.handOver && state.waitingForHuman && !actionBlocked;
-    const dealt = state.dealtHoleCounts[humanIndex] || 0;
-    const canPeek = !state.handOver && !human.folded && human.hand.length === 2 && dealt >= 2 && !actionBlocked;
+    const yourTurn =
+      !state.handOver &&
+      state.waitingForHuman &&
+      !actionBlocked &&
+      state.activePlayerIndex === localSeat &&
+      canLocalControlSeat(localSeat);
+    const dealt = state.dealtHoleCounts[localSeat] || 0;
+    const canPeek = !state.handOver && !localPlayer.folded && localPlayer.hand.length === 2 && dealt >= 2 && !actionBlocked;
 
     if (!canPeek && state.holePeek) {
       setPeek(false);
@@ -5609,6 +6826,8 @@
       if (el.raiseInput) {
         el.raiseInput.disabled = true;
       }
+      el.checkCallBtn.textContent = "Check";
+      el.raiseBtn.textContent = state.currentBet === 0 ? "Bet To" : "Raise To";
       return;
     }
 
@@ -5618,10 +6837,10 @@
       el.raiseInput.disabled = false;
     }
 
-    const toCall = Math.max(0, state.currentBet - human.currentBet);
+    const toCall = Math.max(0, state.currentBet - localPlayer.currentBet);
     el.checkCallBtn.textContent = toCall > 0 ? `Call ${toCurrency(toCall)}` : "Check";
 
-    const maxTotal = human.currentBet + human.chips;
+    const maxTotal = localPlayer.currentBet + localPlayer.chips;
     const strictMinTotal = state.currentBet === 0 ? state.bigBlind : state.currentBet + state.minRaise;
     const minTotal = Math.min(strictMinTotal, maxTotal);
 
@@ -5686,6 +6905,12 @@
 
   function bindEvents() {
     el.nextHandBtn.addEventListener("click", () => {
+      if (multiplayerEnabled()) {
+        if (!isMultiplayerHost()) return;
+        sendMultiplayerCommand("next_hand");
+        return;
+      }
+      if (!hasAuthoritativeControl()) return;
       if (state.gameOver || isEconomyModalOpen()) return;
       clearAutoNextHand();
       el.nextHandBtn.disabled = true;
@@ -5694,6 +6919,7 @@
 
     if (el.replayBtn) {
       el.replayBtn.addEventListener("click", () => {
+        if (!hasAuthoritativeControl()) return;
         clearAutoNextHand();
         replayLastHand();
       });
@@ -5731,6 +6957,7 @@
 
     if (el.autoTuneBtn) {
       el.autoTuneBtn.addEventListener("click", () => {
+        if (!hasAuthoritativeControl()) return;
         if (el.autoTuneBtn.disabled) return;
         applyAutoBalanceTune(4);
       });
@@ -5762,60 +6989,160 @@
 
     if (el.upgradeBankrollBtn) {
       el.upgradeBankrollBtn.addEventListener("click", () => {
+        if (!hasAuthoritativeControl()) return;
         tryBuyMetaUpgrade("bankroll");
       });
     }
 
     if (el.upgradeRerollBtn) {
       el.upgradeRerollBtn.addEventListener("click", () => {
+        if (!hasAuthoritativeControl()) return;
         tryBuyMetaUpgrade("reroll");
       });
     }
 
     if (el.upgradeSlotsBtn) {
       el.upgradeSlotsBtn.addEventListener("click", () => {
+        if (!hasAuthoritativeControl()) return;
         tryBuyMetaUpgrade("slots");
       });
     }
 
     if (el.restartRunBtn) {
       el.restartRunBtn.addEventListener("click", () => {
+        if (multiplayerEnabled()) {
+          if (!isMultiplayerHost()) return;
+          sendMultiplayerCommand("restart_run");
+          return;
+        }
+        if (!hasAuthoritativeControl()) return;
         restartRunFromGameOver();
       });
     }
 
     if (el.lootEquipBtn) {
       el.lootEquipBtn.addEventListener("click", () => {
+        if (multiplayerEnabled()) {
+          sendMultiplayerCommand("loot_equip");
+          return;
+        }
+        if (!hasAuthoritativeControl()) return;
         resolveLootDecision("equip");
       });
     }
 
     if (el.lootSellBtn) {
       el.lootSellBtn.addEventListener("click", () => {
+        if (multiplayerEnabled()) {
+          sendMultiplayerCommand("loot_sell");
+          return;
+        }
+        if (!hasAuthoritativeControl()) return;
         resolveLootDecision("sell");
       });
     }
 
     if (el.shopRerollBtn) {
       el.shopRerollBtn.addEventListener("click", () => {
+        if (multiplayerEnabled()) {
+          sendMultiplayerCommand("shop_reroll");
+          return;
+        }
+        if (!hasAuthoritativeControl()) return;
         rerollShopOffers();
       });
     }
 
     if (el.shopCloseBtn) {
       el.shopCloseBtn.addEventListener("click", () => {
+        if (multiplayerEnabled()) {
+          sendMultiplayerCommand("shop_close");
+          return;
+        }
+        if (!hasAuthoritativeControl()) return;
         closeShopModal();
       });
     }
 
     if (el.shopOffers) {
       el.shopOffers.addEventListener("click", (event) => {
+        if (multiplayerEnabled()) {
+          if (!state.multiplayer.connected) return;
+        } else if (!hasAuthoritativeControl()) {
+          return;
+        }
         const target = event.target;
         if (!target || typeof target.closest !== "function") return;
         const button = target.closest("button[data-buy-item]");
         if (!button || button.disabled) return;
         const itemId = button.dataset.buyItem || "";
+        if (multiplayerEnabled()) {
+          sendMultiplayerCommand("shop_buy", { itemId });
+          return;
+        }
         buyShopOffer(itemId);
+      });
+    }
+
+    if (el.mpCreateBtn) {
+      el.mpCreateBtn.addEventListener("click", () => {
+        connectMultiplayer("create");
+      });
+    }
+
+    if (el.mpJoinBtn) {
+      el.mpJoinBtn.addEventListener("click", () => {
+        connectMultiplayer("join");
+      });
+    }
+
+    if (el.mpQuickBtn) {
+      el.mpQuickBtn.addEventListener("click", () => {
+        void startQuickMatch();
+      });
+    }
+
+    if (el.mpLeaveBtn) {
+      el.mpLeaveBtn.addEventListener("click", () => {
+        if (state.multiplayer.queueing) {
+          void cancelQuickMatch();
+          return;
+        }
+        leaveMultiplayerSession();
+      });
+    }
+
+    if (el.mpNameInput) {
+      el.mpNameInput.addEventListener("change", () => {
+        state.multiplayer.displayName = normalizePlayerNameInput(el.mpNameInput.value);
+        el.mpNameInput.value = state.multiplayer.displayName;
+        saveMultiplayerSessionCache();
+        renderMultiplayerPanel();
+      });
+      el.mpNameInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          if (el.mpJoinBtn && !el.mpJoinBtn.disabled) {
+            el.mpJoinBtn.click();
+          }
+        }
+      });
+    }
+
+    if (el.mpRoomInput) {
+      el.mpRoomInput.addEventListener("change", () => {
+        state.multiplayer.roomCode = normalizeRoomCodeInput(el.mpRoomInput.value);
+        el.mpRoomInput.value = state.multiplayer.roomCode;
+        saveMultiplayerSessionCache();
+        renderMultiplayerPanel();
+      });
+      el.mpRoomInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          if (el.mpJoinBtn && !el.mpJoinBtn.disabled) {
+            el.mpJoinBtn.click();
+          }
+        }
       });
     }
 
@@ -5904,6 +7231,21 @@
         if (!itemId) return;
 
         event.preventDefault();
+        if (multiplayerEnabled()) {
+          if (!state.multiplayer.connected) return;
+          if (event.shiftKey) {
+            sendMultiplayerCommand("sell_item", { itemId });
+            return;
+          }
+          if (!isClickableUseItemId(itemId)) {
+            setStatus("패시브 아이템.", "해당 아이템은 클릭 사용이 아닌 자동 적용입니다.");
+            render();
+            return;
+          }
+          sendMultiplayerCommand("use_item", { itemId });
+          return;
+        }
+        if (!hasAuthoritativeControl()) return;
         if (event.shiftKey) {
           trySellHumanItemById(itemId);
           return;
@@ -5920,6 +7262,12 @@
         if (!itemId) return;
 
         event.preventDefault();
+        if (multiplayerEnabled()) {
+          if (!state.multiplayer.connected) return;
+          sendMultiplayerCommand("sell_item", { itemId });
+          return;
+        }
+        if (!hasAuthoritativeControl()) return;
         trySellHumanItemById(itemId);
       });
     }
@@ -5983,6 +7331,10 @@
         endPeek();
       }
     });
+
+    window.addEventListener("beforeunload", () => {
+      closeMultiplayerSocket();
+    });
   }
 
   function bootstrap() {
@@ -6003,6 +7355,7 @@
       });
     }
     loadPreferences();
+    loadMultiplayerSessionCache();
     initSeats();
     bindEvents();
     setHomeGuideVisible(false);
@@ -6018,6 +7371,7 @@
 
     el.nextHandBtn.disabled = true;
     setHomeVisibility(true);
+    attemptMultiplayerAutoReconnect();
   }
 
   bootstrap();

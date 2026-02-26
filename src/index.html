@@ -284,6 +284,23 @@
       </section>
 
       <section class="action-panel">
+        <section class="multiplayer-panel" id="multiplayerPanel" aria-live="polite">
+          <div class="multiplayer-main">
+            <input id="mpNameInput" type="text" maxlength="16" placeholder="Name" value="Player" aria-label="Player name" />
+            <input id="mpRoomInput" type="text" maxlength="8" placeholder="Room Code" aria-label="Room code" />
+            <button id="mpCreateBtn" type="button">Create Room</button>
+            <button id="mpJoinBtn" type="button">Join Room</button>
+            <button id="mpQuickBtn" type="button">Quick Match</button>
+            <button id="mpLeaveBtn" type="button" disabled>Leave</button>
+          </div>
+          <div class="multiplayer-status-row">
+            <span class="mp-badge solo" id="mpStatusBadge">Solo</span>
+            <span id="mpSeatInfo">Seat 3</span>
+            <span id="mpRoomInfo">Room -</span>
+            <span id="mpMemberInfo">Players 1/4</span>
+          </div>
+        </section>
+
         <div class="status-row">
           <div class="status-main" id="statusMain">Start a new hand.</div>
           <div class="status-sub" id="statusSub">You are seat 3.</div>

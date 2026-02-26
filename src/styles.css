@@ -1,5 +1,5 @@
 :root {
-  --home-art-url: url("assets/home/home-srceen.png");
+  --home-art-url: url("assets/home/home-screen.png");
   --bg-0: #040506;
   --bg-1: #0d1114;
   --felt-0: #0c4737;
@@ -1707,6 +1707,8 @@ body.home-open {
 .name {
   font-weight: 700;
   letter-spacing: 0.02em;
+  color: #f4f7fb;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
 }
 
 .seat-tags {
@@ -3002,6 +3004,99 @@ body.home-open {
   cursor: not-allowed;
 }
 
+.multiplayer-panel {
+  margin-bottom: 0.68rem;
+  border-radius: 12px;
+  border: 1px solid rgba(123, 185, 236, 0.38);
+  background: linear-gradient(160deg, rgba(8, 20, 31, 0.9), rgba(10, 25, 39, 0.78));
+  padding: 0.54rem 0.62rem;
+  display: grid;
+  gap: 0.42rem;
+}
+
+.multiplayer-main {
+  display: grid;
+  grid-template-columns: minmax(110px, 1fr) minmax(120px, 1fr) auto auto auto auto;
+  gap: 0.42rem;
+  align-items: center;
+}
+
+.multiplayer-main input {
+  min-height: 34px;
+  border-radius: 8px;
+  border: 1px solid rgba(130, 186, 236, 0.5);
+  background: rgba(6, 15, 24, 0.88);
+  color: #d9ecff;
+  padding: 0 0.5rem;
+  font-family: inherit;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.multiplayer-main input::placeholder {
+  color: #88a9c6;
+}
+
+.multiplayer-main input:focus-visible {
+  outline: 2px solid rgba(125, 188, 243, 0.72);
+  outline-offset: 1px;
+}
+
+.multiplayer-main button {
+  min-height: 34px;
+  border-radius: 8px;
+  border: 1px solid rgba(225, 191, 118, 0.58);
+  background: linear-gradient(160deg, #27425a, #1a2d3d);
+  color: #e2efff;
+  font-family: inherit;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+  padding: 0 0.7rem;
+}
+
+.multiplayer-main button:disabled {
+  opacity: 0.46;
+  cursor: not-allowed;
+}
+
+.multiplayer-status-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.52rem;
+  color: #bdd6ec;
+  font-size: 0.77rem;
+  letter-spacing: 0.03em;
+  font-weight: 700;
+}
+
+.mp-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 62px;
+  border-radius: 999px;
+  border: 1px solid rgba(141, 183, 222, 0.48);
+  background: rgba(11, 23, 34, 0.72);
+  padding: 0.12rem 0.46rem;
+  color: #d2e9ff;
+}
+
+.mp-badge.host {
+  border-color: rgba(225, 191, 118, 0.75);
+  color: #ffe0a3;
+}
+
+.mp-badge.client {
+  border-color: rgba(128, 204, 171, 0.7);
+  color: #c7f3df;
+}
+
+.mp-badge.queue {
+  border-color: rgba(123, 194, 255, 0.76);
+  color: #d7eeff;
+}
+
 .action-panel {
   margin-top: 0.32rem;
   border-radius: 14px;
@@ -3338,6 +3433,10 @@ body.home-open {
     grid-template-columns: 1fr 1fr;
   }
 
+  .multiplayer-main {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .showdown-list {
     grid-template-columns: 1fr;
   }
@@ -3415,6 +3514,14 @@ body.home-open {
   .status-row {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .multiplayer-main {
+    grid-template-columns: 1fr;
+  }
+
+  .multiplayer-status-row {
+    font-size: 0.72rem;
   }
 
   .showdown-card-tile {

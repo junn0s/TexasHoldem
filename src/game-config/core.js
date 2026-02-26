@@ -48,7 +48,6 @@
       "assets/audio/game-funk.mp3"
     ]),
     HOME_ART_CANDIDATES: Object.freeze([
-      "assets/home/home-srceen.png",
       "assets/home/home-screen.png",
       "assets/home/home-screen.jpg",
       "assets/home/home-screen.webp"
